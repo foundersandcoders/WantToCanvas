@@ -1,8 +1,8 @@
 #Want to canvas
 
-###Make and HTML5 canvas game!
+###Make an HTML5 canvas game!
 
-This is one of a series of 3 newbie friendly projects for 24 Pull Requests: http://24pullrequests.com/.
+This is one of a series of 3 beginner friendly projects for 24 Pull Requests: http://24pullrequests.com/.
 
 We want you to help us to build an HTML5 game, we are open to the concept and complexity. We suggests to start with a story or idea that you can add on this README!
 
