@@ -25,5 +25,5 @@ Other than that, do whatever you think is best. If you want inspiration, help or
 
 ###Check out our other projects:
 
-* Build a blogging platform: 
+* Build a blogging platform: https://github.com/foundersandcoders/we-love-to-learn
 * Make an API call: https://github.com/foundersandcoders/Monkey-Phone
