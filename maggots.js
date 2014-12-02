@@ -51,26 +51,30 @@ function genTerrain(width, height, displace, roughness) {
         displace *= roughness;
     }    
     return points;
+
 }
 
 function drawTerrain() {
 
-// Generate the terrain points
-var terrainPoints = genTerrain(canvasNode.width, canvasNode.height, canvasNode.height / 4, 0.6);
+    // Generate the terrain points
+    var terrainPoints = genTerrain(canvasNode.width, canvasNode.height, canvasNode.height / 4, 0.6);
 
-// draw the points
-context.beginPath();
-context.moveTo(0, terrainPoints[0]);
-for (var t = 1; t < terrainPoints.length; t++) {
-    context.lineTo(t, terrainPoints[t]);
-}
+    // Draw the points
+    context.beginPath();
+    context.moveTo(0, terrainPoints[0]);
+    for (var t = 1; t < terrainPoints.length; t++) {
+        context.lineTo(t, terrainPoints[t]);
+    }
 
-// finish creating the rect so we can fill it
-context.lineTo(canvasNode.width, canvasNode.height);
-context.lineTo(0, canvasNode.height);
-context.closePath();
-context.fillStyle = "darkblue";
-context.fill();
+    // Finish creating the rectangle so we can fill it
+    context.lineTo(canvasNode.width, canvasNode.height);
+    context.lineTo(0, canvasNode.height);
+    context.closePath();
+
+    // Terrain styling
+    context.fillStyle = "darkblue";
+    context.fill();
+
 }
 
 window.onresize = setCanvas;
