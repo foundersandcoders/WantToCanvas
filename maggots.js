@@ -32,7 +32,7 @@ function drawBackground() {
     context.rect(0, 0, canvasNode.width, canvasNode.height);
 
     // Fill the rectangle with a linear gradient
-    var grd = context.createLinearGradient(canvasNode.width / 2, 0, canvasNode.width / 2, canvasNode.height);
+    var grd = context.createLinearGradient(0, 0, 0, canvasNode.height);
     grd.addColorStop(0, 'lightblue');
     grd.addColorStop(1, 'blue');
     context.fillStyle = grd;
