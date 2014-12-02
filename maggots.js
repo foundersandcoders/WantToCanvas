@@ -22,9 +22,29 @@ function setCanvas() {
 
 }
 
+function drawBackground() {
+
+    /*
+     * Style the background
+     */
+
+    // Draw a rectangle to cover the entire canvas
+    context.rect(0, 0, canvasNode.width, canvasNode.height);
+
+    // Fill the rectangle with a linear gradient
+    var grd = context.createLinearGradient(canvasNode.width / 2, 0, canvasNode.width / 2, canvasNode.height);
+    grd.addColorStop(0, 'lightblue');
+    grd.addColorStop(1, 'blue');
+    context.fillStyle = grd;
+    context.fill();
+
+}
+
+
 function genTerrain(width, height, displace, roughness) {
 
-    /* Stolen from http://www.somethinghitme.com/2013/11/11/simple-2d-terrain-with-midpoint-displacement/
+    /*
+     * Stolen from http://www.somethinghitme.com/2013/11/11/simple-2d-terrain-with-midpoint-displacement/
      *
      * width and height are the overall width and height we have to work with, displace is
      * the maximum deviation value. This stops the terrain from going out of bounds if we choose
@@ -56,6 +76,10 @@ function genTerrain(width, height, displace, roughness) {
 
 function drawTerrain() {
 
+    /*
+     * Draw a random-looking terrain on the screen
+     */
+
     // Generate the terrain points
     var terrainPoints = genTerrain(canvasNode.width, canvasNode.height, canvasNode.height / 4, 0.6);
 
@@ -72,11 +96,17 @@ function drawTerrain() {
     context.closePath();
 
     // Terrain styling
-    context.fillStyle = "darkblue";
+    context.fillStyle = "darkgreen";
     context.fill();
-
 }
 
+/*
+ * Main screen turn on...
+ */
+
+// If the window size changes, adjust the canvas to match
 window.onresize = setCanvas;
+
 setCanvas();
+drawBackground();
 drawTerrain();
