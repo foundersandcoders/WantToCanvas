@@ -1,5 +1,7 @@
 var canvasNode = document.getElementById('gameCanvas');
 var context = canvasNode.getContext('2d');
+var terrainHeight = 40
+var characters = []
 
 function setCanvas() {
 
@@ -69,9 +71,21 @@ function genTerrain(width, height, displace, roughness) {
         }
         // reduce our random range
         displace *= roughness;
-    }    
+    }
+    console.log(points)
     return points;
 
+}
+
+function drawFlatTerrain () {
+  context.beginPath()
+  context.moveTo(0, canvasNode.height - terrainHeight)
+  context.lineTo(canvasNode.width, canvasNode.height - terrainHeight)
+  context.lineTo(canvasNode.width, canvasNode.height)
+  context.lineTo(0, canvasNode.height)
+  context.closePath
+  context.fillStyle = 'darkgreen'
+  context.fill()
 }
 
 function drawTerrain() {
@@ -100,6 +114,43 @@ function drawTerrain() {
     context.fill();
 }
 
+// Return an object that describes our new character
+function makeCharacter (colour, position) {
+  var character = {
+    health: 100,
+    colour: colour,
+    width: 50,
+    height: 20,
+    xPosition: position
+  }
+  return character
+}
+
+// Make 2 players and place them at either end of the screen
+function placeCharacters () {
+  var blueCharacter = makeCharacter('red', 40)
+  var yellowCharacter = makeCharacter('yellow', canvasNode.width - 40)
+  // Put our characters into the characters array
+  characters.push(blueCharacter)
+  characters.push(yellowCharacter)
+
+  characters.forEach(function (char) {
+    console.log(char)
+    context.beginPath()
+    // Bottom left corner: character's X position minus half its width, height of ground
+    context.moveTo(char.xPosition - (char.width / 2), canvasNode.height - terrainHeight)
+    // Top left corner: character's X position minus half its width, height of ground + height of character
+    context.lineTo(char.xPosition - (char.width / 2), canvasNode.height - terrainHeight - char.height)
+    // Top right corner: character's X position plus half its width, height of ground + height of character
+    context.lineTo(char.xPosition + (char.width / 2), canvasNode.height - terrainHeight - char.height)
+    // Bottom right corner: character's X position + plus half its width, height of ground
+    context.lineTo(char.xPosition + (char.width / 2), canvasNode.height - terrainHeight)
+    context.closePath()
+    context.fillStyle = char.colour
+    context.fill()
+  })
+}
+
 /*
  * Main screen turn on...
  */
@@ -109,4 +160,5 @@ window.onresize = setCanvas;
 
 setCanvas();
 drawBackground();
-drawTerrain();
+drawFlatTerrain();
+placeCharacters()
