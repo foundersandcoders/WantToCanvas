@@ -27,9 +27,16 @@ function setCanvas() {
 }
 
 function render () {
+
+  /*
+   * Draw everything on the screen
+   */
+
   drawBackground()
   drawFlatTerrain()
   drawCharacters()
+  // When we call nextTurn we place the current player at the start of the characters array
+  drawPlayerMarker(characters[0])
 }
 
 function drawBackground() {
@@ -53,13 +60,9 @@ function drawBackground() {
 function drawCharacters () {
   characters.forEach(function (char) {
     context.beginPath()
-    // Bottom left corner: character's X position minus half its width, height of ground
     context.moveTo(char.xPosition - (char.width / 2), canvas.height - terrainHeight)
-    // Top left corner: character's X position minus half its width, height of ground + height of character
     context.lineTo(char.xPosition - (char.width / 2), canvas.height - terrainHeight - char.height)
-    // Top right corner: character's X position plus half its width, height of ground + height of character
     context.lineTo(char.xPosition + (char.width / 2), canvas.height - terrainHeight - char.height)
-    // Bottom right corner: character's X position + plus half its width, height of ground
     context.lineTo(char.xPosition + (char.width / 2), canvas.height - terrainHeight)
     context.closePath()
     context.fillStyle = char.colour
@@ -160,14 +163,13 @@ function placeCharacters () {
 }
 
 function nextTurn () {
-  // Redraw the screen to remove the previous player marker
-  render()
-  // We take the last character from our list of characters and 'pop' it off - this is our current player
+  // We take the last character from our array of characters and 'pop' it off - this is our current player
   var player = characters.pop()
-  // We then put that character back at the top of the list, using the bizarrely-named 'unshift'
+  // We then put that character back at the start of the array, using the bizarrely-named 'unshift'
   characters.unshift(player)
-  // Add a marker above the current player
-  drawPlayerMarker(player)
+  console.log('Starting turn for '+ player.colour +' player')
+  // Redraw the screen, to update the marker position
+  render()
   // Start listening for input
   hammertime.on('pan', function (event) {
     console.log(event)
@@ -190,11 +192,11 @@ function drawPlayerMarker (player) {
  */
 
 // If the window size changes, adjust the canvas to match
-window.onresize = setCanvas
-
+window.onresize = function () {
+  setCanvas()
+  render()
+}
 setCanvas()
-drawBackground()
-drawFlatTerrain()
 placeCharacters()
-drawCharacters()
 nextTurn()
+render()
