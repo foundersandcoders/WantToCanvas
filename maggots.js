@@ -3,7 +3,9 @@ var context = canvas.getContext('2d')
 var terrainHeight = 40
 var characters = []
 // Setup HammerJS, the mouse/touch gesture library we'll use for the controls
-var hammertime = new Hammer(canvas)
+var hammer = new Hammer(canvas)
+// HammerJS only listens for horizontal drags by default, here we tell it listen for all directions
+hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL })
 
 function setCanvas() {
 
@@ -30,12 +32,13 @@ function render () {
 
   /*
    * Draw everything on the screen
+   * We wrap all this in its own function so we can redraw everything whenever we update something
    */
 
   drawBackground()
-  drawFlatTerrain()
+  drawFlatTerrain(terrainHeight)
   drawCharacters()
-  // When we call nextTurn we place the current player at the start of the characters array
+  // The current player should always be at the top of the characters array until we call nextTurn()
   drawPlayerMarker(characters[0])
 }
 
@@ -58,6 +61,7 @@ function drawBackground() {
 }
 
 function drawCharacters () {
+  // Loop through characters and draw them; remember that the top-left corner is 0,0 in canvas!
   characters.forEach(function (char) {
     context.beginPath()
     context.moveTo(char.xPosition - (char.width / 2), canvas.height - terrainHeight)
@@ -70,8 +74,8 @@ function drawCharacters () {
   })
 }
 
-
-function genTerrain(width, height, displace, roughness) {
+function genTerrain (width, height, displace, roughness) {
+  // We're not using this at the moment until we work out how to get our characters to navigate bumpy terrain
 
   /*
    * Stolen from http://www.somethinghitme.com/2013/11/11/simple-2d-terrain-with-midpoint-displacement/
@@ -92,30 +96,19 @@ function genTerrain(width, height, displace, roughness) {
 
   // Increase the number of segments
   for(var i = 1; i < power; i *=2){
-      // Iterate through each segment calculating the center point
-      for(var j = (power/i)/2; j < power; j+= power/i){
-        points[j] = ((points[j - (power / i) / 2] + points[j + (power / i) / 2]) / 2)
-        points[j] += (Math.random()*displace*2) - displace
-      }
-      // reduce our random range
-      displace *= roughness
+    // Iterate through each segment calculating the center point
+    for(var j = (power/i)/2; j < power; j+= power/i){
+      points[j] = ((points[j - (power / i) / 2] + points[j + (power / i) / 2]) / 2)
+      points[j] += (Math.random()*displace*2) - displace
     }
-    return points
-
+    // reduce our random range
+    displace *= roughness
   }
+  return points
+}
 
-  function drawFlatTerrain () {
-    context.beginPath()
-    context.moveTo(0, canvas.height - terrainHeight)
-    context.lineTo(canvas.width, canvas.height - terrainHeight)
-    context.lineTo(canvas.width, canvas.height)
-    context.lineTo(0, canvas.height)
-    context.closePath
-    context.fillStyle = 'darkgreen'
-    context.fill()
-  }
-
-  function drawTerrain() {
+function drawTerrain () {
+  // We're not using this at the moment until we work out how to get our characters to navigate bumpy terrain
 
   /*
    * Draw a random-looking terrain on the screen
@@ -141,8 +134,20 @@ function genTerrain(width, height, displace, roughness) {
   context.fill()
 }
 
-// Return an object that describes our new character
+function drawFlatTerrain (height) {
+  // Draw a flat line across the screen at
+  context.beginPath()
+  context.moveTo(0, canvas.height - height)
+  context.lineTo(canvas.width, canvas.height - height)
+  context.lineTo(canvas.width, canvas.height)
+  context.lineTo(0, canvas.height)
+  context.closePath
+  context.fillStyle = 'darkgreen'
+  context.fill()
+}
+
 function makeCharacter (colour, position) {
+  // Return an object that describes our new character
   var character = {
     health: 100,
     colour: colour,
@@ -153,8 +158,8 @@ function makeCharacter (colour, position) {
   return character
 }
 
-// Make 2 players and place them at either end of the screen
 function placeCharacters () {
+  // Make 2 players and place them at either end of the screen
   var blueCharacter = makeCharacter('red', 40)
   var yellowCharacter = makeCharacter('yellow', canvas.width - 40)
   // Put our characters into the characters array
@@ -170,13 +175,41 @@ function nextTurn () {
   console.log('Starting turn for '+ player.colour +' player')
   // Redraw the screen, to update the marker position
   render()
-  // Start listening for input
-  hammertime.on('pan', function (event) {
-    console.log(event)
+
+  // Start listening for the start of a mouse/finger drag
+  /*
+  * We're calling hammer.on twice here, to listen for two different types of events; 'pan' will fire
+  * every time the user drags their pointer on the canvas while their mouse or finger is pressed down,
+  * and 'panend' will fire once when they release. The second parameter passed to hammer.on parameter 
+  * is the callback function that the input event is passed to. Hammer will continue to listen and run
+  * these functions until we call hammer.off('pan') and hammer.off('panend') to tell it to stop.
+  */
+  hammer.on('pan', function (event) {
+    var angle = event.angle
+    // The distance of the drag is measured in pixels, so we have to standardise it before
+    // translating it into the 'power' of our shot
+    var power = translateDistanceToPower(event.distance)
+    drawAimArrow(angle, power)
+  })
+  hammer.on('panend', function (event) {
+    // The player has stopped dragging, let loose!
+    console.log('angle', event.angle)
+    console.log('distance', event.distance)
+    console.log('Fire!')
   })
 }
 
+function translateDistanceToPower (distance) {
+  // Divide the height of the canvas by the distance of our drag - we'll set a 'power limit' of 50% screen height
+  var power = canvas.height / distance
+  if (power > 0.5) power = 0.5
+  // The maths are easier if our 'max power' is 100
+  power = power * 200
+  return power
+}
+
 function drawPlayerMarker (player) {
+  // Get the position of the player and draw a lil white triangle above it
   var markerHeight = canvas.height - terrainHeight - player.height - 20
   context.beginPath()
   context.moveTo(player.xPosition, markerHeight)
@@ -185,6 +218,11 @@ function drawPlayerMarker (player) {
   context.closePath()
   context.fillStyle = 'white'
   context.fill()
+}
+
+function drawAimArrow (angle, power) {
+  // Once we've detected player input, we draw an arrow to show the power & direction of their planned shot
+  console.log(angle, power)
 }
 
 /*
