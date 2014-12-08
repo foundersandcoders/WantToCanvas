@@ -1,6 +1,7 @@
 var canvas = document.getElementById('gameCanvas')
 var context = canvas.getContext('2d')
 var terrainHeight = 40
+var gravity = 0.1
 var characters = []
 // Setup HammerJS, the mouse/touch gesture library we'll use for the controls
 var hammer = new Hammer(canvas)
@@ -197,22 +198,15 @@ function nextTurn () {
       // translating it into the 'power' of our shot. You might want to console.log out event.angle
       // here to see how HammerJS gives us angles.
       var power = translateDistanceToPower(event.distance)
-      
       drawAimArrow(center, event.angle, power)
-      //drawAimArrow(angle, power)
     })
   })
   
   hammer.on('panend', function (event) {
-    var angle = event.angle
-    if (angle < 0) angle = 360 + event.angle
-    //console.log(angle)
     // The player has stopped dragging, let loose!
     var power = translateDistanceToPower(event.distance)
-    //drawAimArrow(event.center, event.angle, power)
-    // console.log('angle:   ', event.angle)
-    //console.log('distance:', event.distance)
-    //console.log('Fire!')
+    fireProjectile(characters[0], event.angle, power)
+    hammer.off('panstart pan panend')
   })
 }
 
@@ -239,7 +233,7 @@ function drawPlayerMarker (player) {
 
 function drawAimArrow (start, angle, power) {
   // Once we've detected player input, we draw an arrow to show the power & direction of their planned shot
-  // Clear the screen first
+  // Refresh the screen first
   render()
   // Do some maths I copied from the internet
   var radians = angle * Math.PI / 180
@@ -250,6 +244,49 @@ function drawAimArrow (start, angle, power) {
   context.lineTo(arrowToX, arrowToY)
   context.strokeStyle = 'white'
   context.stroke()
+}
+
+function fireProjectile (player, angle, power) {
+  render()
+  // We use the angle to work out how many pixels we should move the projectile each frame
+  var radians = angle * Math.PI / 180
+  var stepX = (power * Math.cos(radians)) / 10
+  var stepY = (power * Math.sin(radians)) / 10
+  var projectile = {
+    x: player.xPosition,
+    y: canvas.height - terrainHeight - player.height
+  }
+
+  // setInterval runs a function repeatedly until we tell it to stop. It returns an ID, which we store
+  // here as projectileIntervalID, and tell it stop by calling clearInterval(projectileInterval) later on
+  var projectileIntervalID = setInterval(function () {
+    render()
+    // Apply gravity to our vertical speed (remember negative Y = up in canvas!)
+    stepY -= gravity
+    // Move the projectile and draw it
+    projectile.x -= stepX
+    projectile.y -= stepY
+    if (projectile.y >= canvas.height - terrainHeight) {
+      // If the projectile has hit the floor, explode it and go to next turn
+      impactProjectile(projectile)
+      clearInterval(projectileIntervalID)
+      nextTurn()
+    } else {
+      drawProjectile(projectile)
+    }
+
+  }, 10)
+}
+
+function drawProjectile (projectile) {
+  context.beginPath()
+  context.arc(projectile.x, projectile.y, 10, 0, 2 * Math.PI, false)
+  context.fillStyle = 'white'
+  context.fill()
+}
+
+function impactProjectile (projectile) {
+  console.log('Kablooie:', projectile)
 }
 
 /*
