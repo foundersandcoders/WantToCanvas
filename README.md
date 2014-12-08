@@ -1,5 +1,7 @@
 #Want to canvas
 
+[![Gitter](https://badges.gitter.im/Join Chat.svg)](https://gitter.im/foundersandcoders/WantToCanvas?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 ###Make an HTML5 canvas game!
 
 This is one of a series of 3 beginner friendly projects for 24 Pull Requests: http://24pullrequests.com/.
