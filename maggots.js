@@ -178,30 +178,47 @@ function nextTurn () {
 
   // Start listening for the start of a mouse/finger drag
   /*
-  * We're calling hammer.on twice here, to listen for two different types of events; 'pan' will fire
-  * every time the user drags their pointer on the canvas while their mouse or finger is pressed down,
-  * and 'panend' will fire once when they release. The second parameter passed to hammer.on parameter 
-  * is the callback function that the input event is passed to. Hammer will continue to listen and run
-  * these functions until we call hammer.off('pan') and hammer.off('panend') to tell it to stop.
+  * We're calling hammer.on three times here, to listen for three different types of events; 'panstart'
+  * fires when the user starts to drag, 'pan' will fire every time the user drags their pointer on the 
+  * canvas while their mouse or finger is pressed down, and 'panend' will fire once when they release. The 
+  * second parameter passed to hammer.on parameter is the callback function that the input event is passed
+  * to. Hammer will continue to listen and run these functions until we call hammer.off('pan') for each event 
+  * to tell it to stop.
   */
-  hammer.on('pan', function (event) {
-    var angle = event.angle
-    // The distance of the drag is measured in pixels, so we have to standardise it before
-    // translating it into the 'power' of our shot
-    var power = translateDistanceToPower(event.distance)
-    drawAimArrow(angle, power)
+  hammer.on('panstart', function (event) {
+    // HammerJS tells us where the user started dragging relative to the page, not the canvas - translate here
+    // We grab the position at the start of the drag and remember it to draw a nice arrow from
+    var center = {
+      x: event.center.x - canvas.getBoundingClientRect().left,
+      y: event.center.y - canvas.getBoundingClientRect().top
+    }
+    hammer.on('pan', function (event) {
+      // The distance of the drag is measured in pixels, so we have to standardise it before
+      // translating it into the 'power' of our shot. You might want to console.log out event.angle
+      // here to see how HammerJS gives us angles.
+      var power = translateDistanceToPower(event.distance)
+      
+      drawAimArrow(center, event.angle, power)
+      //drawAimArrow(angle, power)
+    })
   })
+  
   hammer.on('panend', function (event) {
+    var angle = event.angle
+    if (angle < 0) angle = 360 + event.angle
+    //console.log(angle)
     // The player has stopped dragging, let loose!
-    console.log('angle', event.angle)
-    console.log('distance', event.distance)
-    console.log('Fire!')
+    var power = translateDistanceToPower(event.distance)
+    //drawAimArrow(event.center, event.angle, power)
+    // console.log('angle:   ', event.angle)
+    //console.log('distance:', event.distance)
+    //console.log('Fire!')
   })
 }
 
 function translateDistanceToPower (distance) {
   // Divide the height of the canvas by the distance of our drag - we'll set a 'power limit' of 50% screen height
-  var power = canvas.height / distance
+  var power = distance / canvas.height
   if (power > 0.5) power = 0.5
   // The maths are easier if our 'max power' is 100
   power = power * 200
@@ -220,9 +237,19 @@ function drawPlayerMarker (player) {
   context.fill()
 }
 
-function drawAimArrow (angle, power) {
+function drawAimArrow (start, angle, power) {
   // Once we've detected player input, we draw an arrow to show the power & direction of their planned shot
-  console.log(angle, power)
+  // Clear the screen first
+  render()
+  // Do some maths I copied from the internet
+  var radians = angle * Math.PI / 180
+  var arrowToX = start.x - power * Math.cos(radians)
+  var arrowToY = start.y - power * Math.sin(radians)
+  // Draw the line
+  context.moveTo(start.x, start.y)
+  context.lineTo(arrowToX, arrowToY)
+  context.strokeStyle = 'white'
+  context.stroke()
 }
 
 /*
