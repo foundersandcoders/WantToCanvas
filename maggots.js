@@ -3,13 +3,13 @@ var context = canvas.getContext('2d')
 var terrainHeight = 40
 var gravity = 0.1
 var characters = []
+var deadCharacters = []
 // Setup HammerJS, the mouse/touch gesture library we'll use for the controls
 var hammer = new Hammer(canvas)
 // HammerJS only listens for horizontal drags by default, here we tell it listen for all directions
 hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL })
 
 function setCanvas() {
-
   /*
    * Place the game canvas in the middle of the screen
    */
@@ -26,11 +26,9 @@ function setCanvas() {
   // Centre the canvas in the window
   canvas.style.top = (ph - canvas.height) / 2 + 'px'
   canvas.style.left = (pw - canvas.width) / 2 + 'px'
-
 }
 
 function render () {
-
   /*
    * Draw everything on the screen
    * We wrap all this in its own function so we can redraw everything whenever we update something
@@ -41,10 +39,10 @@ function render () {
   drawCharacters()
   // The current player should always be at the top of the characters array until we call nextTurn()
   drawPlayerMarker(characters[0])
+  drawUI()
 }
 
 function drawBackground() {
-
   /*
    * Style the background
    */
@@ -58,17 +56,16 @@ function drawBackground() {
   grd.addColorStop(1, 'blue')
   context.fillStyle = grd
   context.fill()
-
 }
 
 function drawCharacters () {
   // Loop through characters and draw them; remember that the top-left corner is 0,0 in canvas!
   characters.forEach(function (char) {
     context.beginPath()
-    context.moveTo(char.xPosition - (char.width / 2), canvas.height - terrainHeight)
-    context.lineTo(char.xPosition - (char.width / 2), canvas.height - terrainHeight - char.height)
-    context.lineTo(char.xPosition + (char.width / 2), canvas.height - terrainHeight - char.height)
-    context.lineTo(char.xPosition + (char.width / 2), canvas.height - terrainHeight)
+    context.moveTo(char.positionX - (char.width / 2), canvas.height - terrainHeight)
+    context.lineTo(char.positionX - (char.width / 2), canvas.height - terrainHeight - char.height)
+    context.lineTo(char.positionX + (char.width / 2), canvas.height - terrainHeight - char.height)
+    context.lineTo(char.positionX + (char.width / 2), canvas.height - terrainHeight)
     context.closePath()
     context.fillStyle = char.colour
     context.fill()
@@ -152,9 +149,24 @@ function makeCharacter (colour, position) {
   var character = {
     health: 100,
     colour: colour,
-    width: 50,
-    height: 20,
-    xPosition: position
+    width: 15,
+    height: 40,
+    positionX: position,
+    takeDamage: function (damage) {
+      this.health = Math.round(this.health - damage)
+      if (this.health <= 0) this.die()
+    },
+    die: function () {
+      var self = this
+      characters.forEach(function (char, index) {
+        if (char == self) characters.pop(index)
+      })
+      deadCharacters.push(self)
+      if (characters.length < 2) {
+        console.log('game over man')
+        endGame()
+      }
+    }
   }
   return character
 }
@@ -206,6 +218,7 @@ function nextTurn () {
     // The player has stopped dragging, let loose!
     var power = translateDistanceToPower(event.distance)
     fireProjectile(characters[0], event.angle, power)
+    // Stop listening to input until the next turn
     hammer.off('panstart pan panend')
   })
 }
@@ -223,12 +236,32 @@ function drawPlayerMarker (player) {
   // Get the position of the player and draw a lil white triangle above it
   var markerHeight = canvas.height - terrainHeight - player.height - 20
   context.beginPath()
-  context.moveTo(player.xPosition, markerHeight)
-  context.lineTo(player.xPosition - 20, markerHeight - 50)
-  context.lineTo(player.xPosition + 20, markerHeight - 50)
+  context.moveTo(player.positionX, markerHeight)
+  context.lineTo(player.positionX - 20, markerHeight - 50)
+  context.lineTo(player.positionX + 20, markerHeight - 50)
   context.closePath()
   context.fillStyle = 'white'
   context.fill()
+}
+
+function drawUI () {
+  if (characters.length == 1) {
+    var winner = characters[0]
+    context.fillStyle = 'white'
+    var text = '> '+ winner.colour +' player == "champion"'
+    context.fillText(text, canvas.width / 2 - (context.measureText(text).width / 2), canvas.height / 2 - 20)
+    context.fillText('true', canvas.width / 2 - (context.measureText(text).width / 2), canvas.height / 2 + 20)
+  } else {
+    var i = 1
+    characters.forEach(function (char) {
+      if (i == 1) context.fillStyle = 'green'
+      else context.fillStyle = 'white'
+      context.font = '20px courier'
+      var text = char.colour + ': ' + char.health
+      context.fillText(text, 30, i * 40)
+      i++
+    })
+  }
 }
 
 function drawAimArrow (start, angle, power) {
@@ -253,7 +286,7 @@ function fireProjectile (player, angle, power) {
   var stepX = (power * Math.cos(radians)) / 10
   var stepY = (power * Math.sin(radians)) / 10
   var projectile = {
-    x: player.xPosition,
+    x: player.positionX,
     y: canvas.height - terrainHeight - player.height
   }
 
@@ -268,13 +301,12 @@ function fireProjectile (player, angle, power) {
     projectile.y -= stepY
     if (projectile.y >= canvas.height - terrainHeight) {
       // If the projectile has hit the floor, explode it and go to next turn
-      impactProjectile(projectile)
+      impactProjectile(projectile, 75)
       clearInterval(projectileIntervalID)
       nextTurn()
     } else {
       drawProjectile(projectile)
     }
-
   }, 10)
 }
 
@@ -285,8 +317,35 @@ function drawProjectile (projectile) {
   context.fill()
 }
 
-function impactProjectile (projectile) {
-  console.log('Kablooie:', projectile)
+function impactProjectile (projectile, explosionSize) {
+  // Start an interval to draw an expanding circle until it's bigger than our explosionSize
+  var radius = 1
+  var explosionIntervalID = setInterval(function () {
+    render()
+    if (radius > explosionSize) {
+      clearInterval(explosionIntervalID)
+      return
+    }
+    context.beginPath()
+    context.arc(projectile.x, projectile.y, radius, 0, 2 * Math.PI, false)
+    context.fillStyle = 'gray'
+    context.fill()
+    radius += 5
+  }, 100)
+  characters.forEach(function (char) {
+    var distance = projectile.x - char.positionX
+    if (distance < 0) distance = 0 - distance
+    console.log('distance:', distance)
+    console.log('damage:', explosionSize - distance)
+    if (distance < explosionSize) {
+      char.takeDamage(explosionSize - distance)
+    }
+  })
+}
+
+function endGame () {
+  // drawUI checks the length of the characters array and displays game over, so we just render
+  render()
 }
 
 /*
