@@ -9,6 +9,50 @@ var hammer = new Hammer(canvas)
 // HammerJS only listens for horizontal drags by default, here we tell it listen for all directions
 hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL })
 
+Physics(function (world) {
+  var viewWidth = window.innerWidth
+  var viewHeight = window.innerHeight
+  // center of the window
+  var center = Physics.vector(viewWidth, viewHeight).mult(0.5)
+  // bounds of the window
+  var viewportBounds = Physics.aabb(0, 0, viewWidth, viewHeight)
+  var attractor
+  var edgeBounce
+  var renderer
+
+  // create a renderer
+  renderer = Physics.renderer('canvas', {
+    el: 'viewport',
+    width: viewWidth,
+    height: viewHeight
+  })
+
+  // add the renderer
+  world.add(renderer)
+  // render on each step
+  world.on('step', function () {
+    world.render()
+  })
+
+  // resize events
+  window.addEventListener('resize', function () {
+    viewWidth = window.innerWidth
+    viewHeight = window.innerHeight
+
+    renderer.el.width = viewWidth
+    renderer.el.height = viewHeight
+
+    viewportBounds = Physics.aabb(0, 0, viewWidth, viewHeight)
+    // update the boundaries
+    edgeBounce.setAABB(viewportBounds)
+  }, true)
+
+  var terrainVertexPoints = genTerrain(renderer.el.width, renderer.el.height, renderer.el.height / 4, 0.6)
+  var floor = Physics.body('convex-polygon', {
+
+  })
+})
+
 function setCanvas() {
   /*
    * Place the game canvas in the middle of the screen
@@ -82,9 +126,9 @@ function genTerrain (width, height, displace, roughness) {
    * the maximum deviation value. This stops the terrain from going out of bounds if we choose
    */
 
-   var points = [],
+  var points = []
   // Gives us a power of 2 based on our width
-  power = Math.pow(2, Math.ceil(Math.log(width) / (Math.log(2))))
+  var power = Math.pow(2, Math.ceil(Math.log(width) / (Math.log(2))))
 
   // Set the initial left point
   points[0] = height/2 + (Math.random()*displace*2) - displace
@@ -335,8 +379,6 @@ function impactProjectile (projectile, explosionSize) {
   characters.forEach(function (char) {
     var distance = projectile.x - char.positionX
     if (distance < 0) distance = 0 - distance
-    console.log('distance:', distance)
-    console.log('damage:', explosionSize - distance)
     if (distance < explosionSize) {
       char.takeDamage(explosionSize - distance)
     }
