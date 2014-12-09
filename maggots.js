@@ -2,6 +2,9 @@
 var terrainHeight = 100
 var characters = []
 var deadCharacters = []
+var sleepVelocityThreshold = 0.0005
+var canSleep = false
+var shouldSleep = false
 
 /*
  * Start PhysicsJS, which will also handle rendering for us. We run the game from inside this function
@@ -26,6 +29,15 @@ Physics(function (world) {
   world.add(renderer)
   // render on each step
   world.on('step', function () {
+    if (canSleep) {
+      shouldSleep = characters.every(function (char) {
+        return char.state.vel.x < sleepVelocityThreshold && char.state.vel.y < sleepVelocityThreshold
+      })
+      if (shouldSleep) {
+        console.log('Going to sleep')
+        world.pause()
+      }
+    }
     world.render()
   })
 
@@ -56,6 +68,9 @@ Physics(function (world) {
   ])
 
   Physics.util.ticker.start()
+  setTimeout(function () {
+    canSleep = true
+  }, 500)
 })
 
 function genTerrain (width, height, displace, roughness) {
