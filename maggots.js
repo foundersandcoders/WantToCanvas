@@ -2,7 +2,7 @@
 var terrainHeight = 100
 var characters = []
 var deadCharacters = []
-var sleepVelocityThreshold = 0.0005
+var sleepVelocityThreshold = 0.005
 var canSleep = false
 var shouldSleep = false
 
@@ -71,39 +71,44 @@ Physics(function (world) {
   setTimeout(function () {
     canSleep = true
   }, 500)
+
+  genTerrain()
 })
 
-function genTerrain (width, height, displace, roughness) {
-  // We're not using this at the moment until we work out how to get our characters to navigate bumpy terrain
-
-  /*
-   * Stolen from http://www.somethinghitme.com/2013/11/11/simple-2d-terrain-with-midpoint-displacement/
-   *
-   * width and height are the overall width and height we have to work with, displace is
-   * the maximum deviation value. This stops the terrain from going out of bounds if we choose
-   */
-
-  var points = []
-  // Gives us a power of 2 based on our width
-  var power = Math.pow(2, Math.ceil(Math.log(width) / (Math.log(2))))
-
-  // Set the initial left point
-  points[0] = height/2 + (Math.random()*displace*2) - displace
-  // set the initial right point
-  points[power] = height/2 + (Math.random()*displace*2) - displace
-  displace *= roughness
-
-  // Increase the number of segments
-  for(var i = 1; i < power; i *=2){
-    // Iterate through each segment calculating the center point
-    for(var j = (power/i)/2; j < power; j+= power/i){
-      points[j] = ((points[j - (power / i) / 2] + points[j + (power / i) / 2]) / 2)
-      points[j] += (Math.random()*displace*2) - displace
-    }
-    // reduce our random range
-    displace *= roughness
+function genTerrain (height, floor, world) {
+  var renderer = world.renderer()
+  var xPoints = []
+  var yPoints = []
+  // Get a number between 5 and 15. This will be the number of angles along our line
+  var numberOfPoints = Math.round(5 + (Math.random() * 10))
+  // Loop through this number of times, generating a number at least as high as 'floor' and as large as 'floor + height'
+  // These will represent the height of the peaks and valleys of our terrain
+  for (var i = 0; i < numberOfPoints; i++) {
+    var point = floor + (Math.random() * height)
+    yPoints.push(point)
   }
-  return points
+  // We do something similar again, to decide how far apart these points are on the X axis, adding each the previous value to
+  // each new random number
+  for (var i = 0; i < numberOfPoints; i++) {
+    if (i > 0) var point = xPoints[i - 1] + 10 + (Math.random() * 100)
+    else var point = 10 + (Math.random() * 100)
+    xPoints.push(point)
+  }
+  // However, we now have a range of points on the X axis that may be larger than the width of our screen, so we squash them down
+  // Get the last point and divide it by the screen width, then multiply all points by this number
+  var squashFactor = renderer.el.width / xPoints[xPoints.length - 1]
+  console.log('exes:', xPoints, 'squash:', squashFactor)
+  var terrainVertices = xPoints.map(function (xPoint, i) {
+    return {
+      x: Math.round(xPoint * squashFactor),
+      y: Math.round(renderer.el.height - yPoints[i])
+    }
+  })
+  terrainVertices[terrainVertices.length - 1].x = renderer.el.width
+  terrainVertices[0].x = 0
+  terrainVertices.push({ x: renderer.el.width, y: renderer.el.height })
+  terrainVertices.push({ x: 0, y: renderer.el.height })
+  console.log(terrainVertices)
 }
 
 function makeTerrain (world) {
@@ -113,31 +118,21 @@ function makeTerrain (world) {
   */
 
   // genTerrain makes a list of random numbers to represent the height of the floor going across the screen
-  var heightMap = genTerrain(renderer.el.width, renderer.el.height, renderer.el.height / 4, 0.6).slice(0, renderer.el.width)
+  var terrainVertices = genTerrain(renderer.el.height / 2, renderer.el.height / 6, world)
   //console.log(heightMap)
   /*
   * Array.map() is a neato functional way of turning an array into another array - here we're looping through our
   * heightmap, treating each value as our y value and the current index as our x value, to return a list of vertices
   */
-  var terrainVertices = heightMap.map(function (y, x) {
-    return { x: x, y: y }
-  })
   // Add a bottom-right and bottom-left corner to our polygon - PhysicsJS will close it off for us
-  terrainVertices.unshift({ x: 0, y: renderer.el.height })
-  terrainVertices.push({ x: renderer.el.width, y: renderer.el.height })
 
   //console.log(terrainVertices)
   var terrain = Physics.body('convex-polygon', {
     x: renderer.el.width / 2,
-    y: renderer.el.height - (terrainHeight / 2),
-    vertices: [
-      { x: 0, y: renderer.el.height },
-      { x: 0, y: renderer.el.height - terrainHeight },
-      { x: renderer.el.width, y: renderer.el.height - terrainHeight },
-      { x: renderer.el.width, y: renderer.el.height },
-    ],
+    y: renderer.el.height - (terrainHeight / 6),
+    vertices: terrainVertices,
     styles: {
-      fillStyle: '#000000'
+      fillStyle: '#EB816A'
     }
     //vertices: terrainVertices
   })
@@ -153,14 +148,14 @@ function makeCharacter (colour, position) {
     x: position.x,
     y: position.y,
     width: 50,
-    height: 150,
+    height: 50,
     styles: {
       fillStyle: colour
     }
   })
   body.treatment = 'dynamic'
   body.cof = 1
-  body.restitution = 0.001
+  body.restitution = 0.00001
   body.mass = 1
   // Return an object that describes our new character
   body.gameData = {
