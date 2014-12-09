@@ -1,76 +1,62 @@
-var canvas = document.getElementById('gameCanvas')
-var context = canvas.getContext('2d')
-var terrainHeight = 40
-var gravity = 0.1
+// Set up the state of our game first
+var terrainHeight = 100
 var characters = []
 var deadCharacters = []
-// Setup HammerJS, the mouse/touch gesture library we'll use for the controls
-var hammer = new Hammer(canvas)
-// HammerJS only listens for horizontal drags by default, here we tell it listen for all directions
-hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL })
 
-function setCanvas() {
-  /*
-   * Place the game canvas in the middle of the screen
-   */
+/*
+ * Start PhysicsJS, which will also handle rendering for us. We run the game from inside this function
+ */
 
-  // Get the width and height of the window
-  var pw = canvas.parentNode.clientWidth
-  var ph = canvas.parentNode.clientHeight
-
-  // Make the canvas size 80% of the window size and
-  // constrain the canvas aspect ratio to that of the screen
-  canvas.height = pw * 0.8 * (canvas.height / canvas.width)
-  canvas.width = pw * 0.8
-
-  // Centre the canvas in the window
-  canvas.style.top = (ph - canvas.height) / 2 + 'px'
-  canvas.style.left = (pw - canvas.width) / 2 + 'px'
-}
-
-function render () {
-  /*
-   * Draw everything on the screen
-   * We wrap all this in its own function so we can redraw everything whenever we update something
-   */
-
-  drawBackground()
-  drawFlatTerrain(terrainHeight)
-  drawCharacters()
-  // The current player should always be at the top of the characters array until we call nextTurn()
-  drawPlayerMarker(characters[0])
-  drawUI()
-}
-
-function drawBackground() {
-  /*
-   * Style the background
-   */
-
-  // Draw a rectangle to cover the entire canvas
-  context.rect(0, 0, canvas.width, canvas.height)
-
-  // Fill the rectangle with a linear gradient
-  var grd = context.createLinearGradient(0, 0, 0, canvas.height)
-  grd.addColorStop(0, 'lightblue')
-  grd.addColorStop(1, 'blue')
-  context.fillStyle = grd
-  context.fill()
-}
-
-function drawCharacters () {
-  // Loop through characters and draw them; remember that the top-left corner is 0,0 in canvas!
-  characters.forEach(function (char) {
-    context.beginPath()
-    context.moveTo(char.positionX - (char.width / 2), canvas.height - terrainHeight)
-    context.lineTo(char.positionX - (char.width / 2), canvas.height - terrainHeight - char.height)
-    context.lineTo(char.positionX + (char.width / 2), canvas.height - terrainHeight - char.height)
-    context.lineTo(char.positionX + (char.width / 2), canvas.height - terrainHeight)
-    context.closePath()
-    context.fillStyle = char.colour
-    context.fill()
+Physics(function (world) {
+  // create a renderer
+  var renderer = Physics.renderer('canvas', {
+    el: 'viewport',
+    width: window.innerWidth,
+    height: window.innerHeight
   })
-}
+
+  viewportBounds = Physics.aabb(0, 0, window.innerWidth, window.innerHeight)
+
+  // Setup HammerJS, the mouse/touch gesture library we'll use for the controls
+  var hammer = new Hammer(renderer.el)
+  // HammerJS only listens for horizontal drags by default, here we tell it listen for all directions
+  hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL })
+
+  // add the renderer to the world
+  world.add(renderer)
+  // render on each step
+  world.on('step', function () {
+    world.render()
+  })
+
+  // resize canvas when the browser is resized
+  window.addEventListener('resize', function () {
+    renderer.el.width = window.innerWidth
+    renderer.el.height = window.innerHeight
+    viewportBounds = Physics.aabb(0, 0, viewWidth, viewHeight)
+  }, true)
+
+  Physics.util.ticker.on(function (time) {
+    world.step(time)
+  })
+
+  // Make our terrain and add it to the world
+  world.add(makeTerrain(world))
+  // Add each of our characters to the world
+  characters = getCharacters(world)
+  characters.forEach(function (character) {
+    world.add(character)
+  })
+  // Add gravity and collision detection
+  world.add([
+    Physics.behavior('constant-acceleration'),
+    Physics.behavior('body-impulse-response'),
+    Physics.behavior('body-collision-detection'),
+    Physics.behavior('sweep-prune')
+  ])
+
+  Physics.util.ticker.start()
+})
 
 function genTerrain (width, height, displace, roughness) {
   // We're not using this at the moment until we work out how to get our characters to navigate bumpy terrain
@@ -82,9 +68,9 @@ function genTerrain (width, height, displace, roughness) {
    * the maximum deviation value. This stops the terrain from going out of bounds if we choose
    */
 
-   var points = [],
+  var points = []
   // Gives us a power of 2 based on our width
-  power = Math.pow(2, Math.ceil(Math.log(width) / (Math.log(2))))
+  var power = Math.pow(2, Math.ceil(Math.log(width) / (Math.log(2))))
 
   // Set the initial left point
   points[0] = height/2 + (Math.random()*displace*2) - displace
@@ -105,53 +91,65 @@ function genTerrain (width, height, displace, roughness) {
   return points
 }
 
-function drawTerrain () {
-  // We're not using this at the moment until we work out how to get our characters to navigate bumpy terrain
-
+function makeTerrain (world) {
+  var renderer = world.renderer()
   /*
-   * Draw a random-looking terrain on the screen
-   */
+  * Make a polygon as wide as the screen with a bumpy top and a flat bottom, to be the floor
+  */
 
-  // Generate the terrain points
-  var terrainPoints = genTerrain(canvas.width, canvas.height, canvas.height / 4, 0.6)
+  // genTerrain makes a list of random numbers to represent the height of the floor going across the screen
+  var heightMap = genTerrain(renderer.el.width, renderer.el.height, renderer.el.height / 4, 0.6).slice(0, renderer.el.width)
+  //console.log(heightMap)
+  /*
+  * Array.map() is a neato functional way of turning an array into another array - here we're looping through our
+  * heightmap, treating each value as our y value and the current index as our x value, to return a list of vertices
+  */
+  var terrainVertices = heightMap.map(function (y, x) {
+    return { x: x, y: y }
+  })
+  // Add a bottom-right and bottom-left corner to our polygon - PhysicsJS will close it off for us
+  terrainVertices.unshift({ x: 0, y: renderer.el.height })
+  terrainVertices.push({ x: renderer.el.width, y: renderer.el.height })
 
-  // Draw the points
-  context.beginPath()
-  context.moveTo(0, terrainPoints[0])
-  for (var t = 1; t < terrainPoints.length; t++) {
-    context.lineTo(t, terrainPoints[t])
-  }
+  //console.log(terrainVertices)
+  var terrain = Physics.body('convex-polygon', {
+    x: renderer.el.width / 2,
+    y: renderer.el.height - (terrainHeight / 2),
+    vertices: [
+      { x: 0, y: renderer.el.height },
+      { x: 0, y: renderer.el.height - terrainHeight },
+      { x: renderer.el.width, y: renderer.el.height - terrainHeight },
+      { x: renderer.el.width, y: renderer.el.height },
+    ],
+    styles: {
+      fillStyle: '#000000'
+    }
+    //vertices: terrainVertices
+  })
+  // Tell PhysicsJS that this shouldn't move
+  terrain.treatment = 'static'
 
-  // Finish creating the rectangle so we can fill it
-  context.lineTo(canvas.width, canvas.height)
-  context.lineTo(0, canvas.height)
-  context.closePath()
-
-  // Terrain styling
-  context.fillStyle = 'darkgreen'
-  context.fill()
-}
-
-function drawFlatTerrain (height) {
-  // Draw a flat line across the screen at
-  context.beginPath()
-  context.moveTo(0, canvas.height - height)
-  context.lineTo(canvas.width, canvas.height - height)
-  context.lineTo(canvas.width, canvas.height)
-  context.lineTo(0, canvas.height)
-  context.closePath
-  context.fillStyle = 'darkgreen'
-  context.fill()
+  return terrain
 }
 
 function makeCharacter (colour, position) {
+  console.log(colour, position)
+  var body = Physics.body('rectangle', {
+    x: position.x,
+    y: position.y,
+    width: 50,
+    height: 150,
+    styles: {
+      fillStyle: colour
+    }
+  })
+  body.treatment = 'dynamic'
+  body.cof = 1
+  body.restitution = 0.001
+  body.mass = 1
   // Return an object that describes our new character
-  var character = {
+  body.gameData = {
     health: 100,
-    colour: colour,
-    width: 15,
-    height: 40,
-    positionX: position,
     takeDamage: function (damage) {
       this.health = Math.round(this.health - damage)
       if (this.health <= 0) this.die()
@@ -168,16 +166,15 @@ function makeCharacter (colour, position) {
       }
     }
   }
-  return character
+  return body
 }
 
-function placeCharacters () {
-  // Make 2 players and place them at either end of the screen
-  var blueCharacter = makeCharacter('red', 40)
-  var yellowCharacter = makeCharacter('yellow', canvas.width - 40)
-  // Put our characters into the characters array
-  characters.push(blueCharacter)
-  characters.push(yellowCharacter)
+function getCharacters (world) {
+  var renderer = world.renderer()
+  var characters = []
+  characters.push(makeCharacter('#E9FA8F', { x: renderer.el.width * 0.1, y: renderer.el.height - terrainHeight - 200 }))
+  characters.push(makeCharacter('#FFA6C0', { x: renderer.el.width * 0.9, y: renderer.el.height - terrainHeight - 200 }))
+  return characters
 }
 
 function nextTurn () {
@@ -239,9 +236,6 @@ function drawPlayerMarker (player) {
   // Get the position of the player and draw a lil white triangle above it
   var markerHeight = canvas.height - terrainHeight - player.height - 20
   context.beginPath()
-  context.moveTo(player.positionX, markerHeight)
-  context.lineTo(player.positionX - 20, markerHeight - 50)
-  context.lineTo(player.positionX + 20, markerHeight - 50)
   context.closePath()
   context.fillStyle = 'white'
   context.fill()
@@ -338,8 +332,6 @@ function impactProjectile (projectile, explosionSize) {
   characters.forEach(function (char) {
     var distance = projectile.x - char.positionX
     if (distance < 0) distance = 0 - distance
-    console.log('distance:', distance)
-    console.log('damage:', explosionSize - distance)
     if (distance < explosionSize) {
       char.takeDamage(explosionSize - distance)
     }
@@ -355,12 +347,7 @@ function endGame () {
  * Main screen turn on...
  */
 
-// If the window size changes, adjust the canvas to match
-window.onresize = function () {
-  setCanvas()
-  render()
-}
-setCanvas()
-placeCharacters()
-nextTurn()
-render()
+//setCanvas()
+// placeCharacters()
+// nextTurn()
+//render()
