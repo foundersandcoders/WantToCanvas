@@ -1,10 +1,10 @@
 // Set up the state of our game first
-var terrainHeight = 100
 var characters = []
 var deadCharacters = []
-var sleepVelocityThreshold = 0.005
-var canSleep = false
-var shouldSleep = false
+// These three variables are to do with "sleeping" the physics engine when things have stopped moving
+var sleepVelocityThreshold = 0.005 // If nothing has a velocity higher than this, go to sleep
+var canSleep = false // We set this to true when things have started moving
+var shouldSleep = false // This gets set to true once everything's slowed down enough
 
 /*
  * Start PhysicsJS, which will also handle rendering for us. We run the game from inside this function
@@ -30,6 +30,7 @@ Physics(function (world) {
   // render on each step
   world.on('step', function () {
     if (canSleep) {
+      // If every character's velocity is below our threshold, it's bedtime
       shouldSleep = characters.every(function (char) {
         return char.state.vel.x < sleepVelocityThreshold && char.state.vel.y < sleepVelocityThreshold
       })
@@ -45,7 +46,7 @@ Physics(function (world) {
   window.addEventListener('resize', function () {
     renderer.el.width = window.innerWidth
     renderer.el.height = window.innerHeight
-    viewportBounds = Physics.aabb(0, 0, viewWidth, viewHeight)
+    viewportBounds = Physics.aabb(0, 0, window.innerWidth, window.innerHeight)
   }, true)
 
   Physics.util.ticker.on(function (time) {
@@ -53,7 +54,7 @@ Physics(function (world) {
   })
 
   // Make our terrain and add it to the world
-  world.add(makeTerrain(world))
+  world.add(genTerrain(renderer.el.height * 0.8, renderer.el.height * 0.5, world))
   // Add each of our characters to the world
   characters = getCharacters(world)
   characters.forEach(function (character) {
@@ -71,8 +72,6 @@ Physics(function (world) {
   setTimeout(function () {
     canSleep = true
   }, 500)
-
-  genTerrain()
 })
 
 function genTerrain (height, floor, world) {
@@ -81,14 +80,14 @@ function genTerrain (height, floor, world) {
   var yPoints = []
   // Get a number between 5 and 15. This will be the number of angles along our line
   var numberOfPoints = Math.round(5 + (Math.random() * 10))
-  // Loop through this number of times, generating a number at least as high as 'floor' and as large as 'floor + height'
+  // Loop over this number, generating a number at least as high as 'floor' and as large as 'floor + height'
   // These will represent the height of the peaks and valleys of our terrain
   for (var i = 0; i < numberOfPoints; i++) {
     var point = floor + (Math.random() * height)
     yPoints.push(point)
   }
-  // We do something similar again, to decide how far apart these points are on the X axis, adding each the previous value to
-  // each new random number
+  // We do something similar again to decide how far apart these points are on the X axis, adding the previous value to
+  // each new random number so we get an increasing list of numbers with random gaps between them
   for (var i = 0; i < numberOfPoints; i++) {
     if (i > 0) var point = xPoints[i - 1] + 10 + (Math.random() * 100)
     else var point = 10 + (Math.random() * 100)
@@ -97,27 +96,57 @@ function genTerrain (height, floor, world) {
   // However, we now have a range of points on the X axis that may be larger than the width of our screen, so we squash them down
   // Get the last point and divide it by the screen width, then multiply all points by this number
   var squashFactor = renderer.el.width / xPoints[xPoints.length - 1]
-  console.log('exes:', xPoints, 'squash:', squashFactor)
+
+  var compoundShape = Physics.body('compound', {
+    x: renderer.el.width / 2,
+    y: renderer.el.height / 2,
+    treatment: 'static',
+    styles: {
+      fillStyle: '#FFFFFF',
+      lineWidth: 1,
+      strokeStyle: '#000000'
+    }
+  })
+  // Array.map() is a neato functional way of turning an array into another array
   var terrainVertices = xPoints.map(function (xPoint, i) {
-    return {
+    var globalCoords = {
       x: Math.round(xPoint * squashFactor),
       y: Math.round(renderer.el.height - yPoints[i])
     }
+    return compoundShape.toBodyCoords(new Physics.vector(globalCoords))
   })
   terrainVertices[terrainVertices.length - 1].x = renderer.el.width
   terrainVertices[0].x = 0
   terrainVertices.push({ x: renderer.el.width, y: renderer.el.height })
   terrainVertices.push({ x: 0, y: renderer.el.height })
-  console.log(terrainVertices)
+  // If you console.log(terrainVertices) here, you'll see that we have a list of coordinates describing our terrain
+  // Now, because PhysicsJS doesn't support concave polygons, we have to turn this into a bunch of simple shapes
+
+  terrainVertices.forEach(function (vertex, i) {
+    var nextVertex = terrainVertices[i+1]
+    if (nextVertex == undefined) nextVertex = terrainVertices[0]
+    // Bunch of maths I copied off stackoverflow to get the distance and angle between this point and the next
+    var distance = Math.sqrt(Math.pow((nextVertex.x - vertex.x), 2) + Math.pow((nextVertex.y - vertex.y), 2))
+    var theta = Math.atan2(nextVertex.y - vertex.y, nextVertex.x - vertex.x)
+    var angle = theta * (180 / Math.PI)
+
+    var rectangle = Physics.body('rectangle', {
+      x: (vertex.x + nextVertex.x) / 2,
+      y: (vertex.y + nextVertex.y) / 2,
+      width: distance,
+      height: 5,
+      angle: angle
+    })
+
+    // var relativeCoords = compoundShape.toBodyCoords(new Physics.vector({ x: rectangle.state.pos.x, y: rectangle.state.pos.y }))
+    compoundShape.addChild(rectangle)
+  })
+  return compoundShape
 }
 
 function makeTerrain (world) {
   var renderer = world.renderer()
-  /*
-  * Make a polygon as wide as the screen with a bumpy top and a flat bottom, to be the floor
-  */
 
-  // genTerrain makes a list of random numbers to represent the height of the floor going across the screen
   var terrainVertices = genTerrain(renderer.el.height / 2, renderer.el.height / 6, world)
   //console.log(heightMap)
   /*
@@ -129,7 +158,7 @@ function makeTerrain (world) {
   //console.log(terrainVertices)
   var terrain = Physics.body('convex-polygon', {
     x: renderer.el.width / 2,
-    y: renderer.el.height - (terrainHeight / 6),
+    y: renderer.el.height * 0.9,
     vertices: terrainVertices,
     styles: {
       fillStyle: '#EB816A'
@@ -155,7 +184,7 @@ function makeCharacter (colour, position) {
   })
   body.treatment = 'dynamic'
   body.cof = 1
-  body.restitution = 0.00001
+  body.restitution = 0
   body.mass = 1
   // Return an object that describes our new character
   body.gameData = {
@@ -182,8 +211,8 @@ function makeCharacter (colour, position) {
 function getCharacters (world) {
   var renderer = world.renderer()
   var characters = []
-  characters.push(makeCharacter('#E9FA8F', { x: renderer.el.width * 0.1, y: renderer.el.height - terrainHeight - 200 }))
-  characters.push(makeCharacter('#FFA6C0', { x: renderer.el.width * 0.9, y: renderer.el.height - terrainHeight - 200 }))
+  characters.push(makeCharacter('#E9FA8F', { x: renderer.el.width * 0.1, y: renderer.el.height * 0.3 }))
+  characters.push(makeCharacter('#FFA6C0', { x: renderer.el.width * 0.9, y: renderer.el.height * 0.3 }))
   return characters
 }
 
