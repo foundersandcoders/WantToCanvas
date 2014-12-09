@@ -4,6 +4,11 @@ var terrainHeight = 40
 var gravity = 0.1
 var characters = []
 var deadCharacters = []
+var image = new Image()
+// image must load before the canvas can be rendered
+image.onload = function() { render(); };
+// render()
+
 // Setup HammerJS, the mouse/touch gesture library we'll use for the controls
 var hammer = new Hammer(canvas)
 // HammerJS only listens for horizontal drags by default, here we tell it listen for all directions
@@ -26,6 +31,7 @@ function setCanvas() {
   // Centre the canvas in the window
   canvas.style.top = (ph - canvas.height) / 2 + 'px'
   canvas.style.left = (pw - canvas.width) / 2 + 'px'
+
 }
 
 function render () {
@@ -42,21 +48,23 @@ function render () {
   drawUI()
 }
 
-function drawBackground() {
+function drawBackground () {
   /*
    * Style the background
    */
 
   // Draw a rectangle to cover the entire canvas
-  context.rect(0, 0, canvas.width, canvas.height)
+  // context.rect(0, 0, canvas.width, canvas.height)
+  context.rect(0, 0, canvas.width, canvas.height);
+  // Fill the rectangle with an image of a gorge 
+  image.src = "Vikos_Gorge_from_Beloe.jpg";
+  var pat = context.createPattern(image,"no-repeat");
+  context.fillStyle = pat;
+  context.fill();
 
-  // Fill the rectangle with a linear gradient
-  var grd = context.createLinearGradient(0, 0, 0, canvas.height)
-  grd.addColorStop(0, 'lightblue')
-  grd.addColorStop(1, 'blue')
-  context.fillStyle = grd
-  context.fill()
 }
+
+
 
 function drawCharacters () {
   // Loop through characters and draw them; remember that the top-left corner is 0,0 in canvas!
@@ -227,7 +235,7 @@ function translateDistanceToPower (distance) {
   // Divide the height of the canvas by the distance of our drag - we'll set a 'power limit' of 50% screen height
   var power = distance / canvas.height
   if (power > 0.5) power = 0.5
-  // The maths are easier if our 'max power' is 100
+  // The maths is easier if our 'max power' is 100
   power = power * 200
   return power
 }
@@ -353,10 +361,12 @@ function endGame () {
  */
 
 // If the window size changes, adjust the canvas to match
+
 window.onresize = function () {
   setCanvas()
   render()
 }
+
 setCanvas()
 placeCharacters()
 nextTurn()
