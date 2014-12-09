@@ -1,10 +1,13 @@
 var canvas = document.getElementById('gameCanvas')
 var context = canvas.getContext('2d')
-var terrainHeight = 40
+var bluePosition = Math.random()* canvas.height * 0.4
+var yellowPosition = Math.random()* canvas.height * 0.4
 var gravity = 0.1
 var characters = []
 var deadCharacters = []
 var image = new Image()
+var explode = false
+
 // image must load before the canvas can be rendered
 image.onload = function() { render(); };
 // render()
@@ -39,10 +42,10 @@ function render () {
    * Draw everything on the screen
    * We wrap all this in its own function so we can redraw everything whenever we update something
    */
-
+ 
   drawBackground()
-  drawFlatTerrain(terrainHeight)
   drawCharacters()
+
   // The current player should always be at the top of the characters array until we call nextTurn()
   drawPlayerMarker(characters[0])
   drawUI()
@@ -61,7 +64,6 @@ function drawBackground () {
   var pat = context.createPattern(image,"no-repeat");
   context.fillStyle = pat;
   context.fill();
-
 }
 
 
@@ -70,14 +72,19 @@ function drawCharacters () {
   // Loop through characters and draw them; remember that the top-left corner is 0,0 in canvas!
   characters.forEach(function (char) {
     context.beginPath()
-    context.moveTo(char.positionX - (char.width / 2), canvas.height - terrainHeight)
-    context.lineTo(char.positionX - (char.width / 2), canvas.height - terrainHeight - char.height)
-    context.lineTo(char.positionX + (char.width / 2), canvas.height - terrainHeight - char.height)
-    context.lineTo(char.positionX + (char.width / 2), canvas.height - terrainHeight)
+    context.moveTo(char.positionX - (char.width / 2), canvas.height - char.positionRandom )
+    context.lineTo(char.positionX - (char.width / 2), canvas.height - char.positionRandom  - char.height)
+    context.lineTo(char.positionX + (char.width / 2), canvas.height - char.positionRandom - char.height)
+    context.lineTo(char.positionX + (char.width / 2), canvas.height - char.positionRandom )
     context.closePath()
     context.fillStyle = char.colour
     context.fill()
   })
+}
+
+function repositionChars () {
+   characters[0].positionRandom = Math.random()* canvas.height * 0.4
+   characters[1].positionRandom = Math.random()* canvas.height * 0.4
 }
 
 function genTerrain (width, height, displace, roughness) {
@@ -90,7 +97,7 @@ function genTerrain (width, height, displace, roughness) {
    * the maximum deviation value. This stops the terrain from going out of bounds if we choose
    */
 
-   var points = [],
+  var points = [],
   // Gives us a power of 2 based on our width
   power = Math.pow(2, Math.ceil(Math.log(width) / (Math.log(2))))
 
@@ -140,19 +147,8 @@ function drawTerrain () {
   context.fill()
 }
 
-function drawFlatTerrain (height) {
-  // Draw a flat line across the screen at
-  context.beginPath()
-  context.moveTo(0, canvas.height - height)
-  context.lineTo(canvas.width, canvas.height - height)
-  context.lineTo(canvas.width, canvas.height)
-  context.lineTo(0, canvas.height)
-  context.closePath
-  context.fillStyle = 'darkgreen'
-  context.fill()
-}
 
-function makeCharacter (colour, position) {
+function makeCharacter (colour, position, random) {
   // Return an object that describes our new character
   var character = {
     health: 100,
@@ -160,6 +156,7 @@ function makeCharacter (colour, position) {
     width: 15,
     height: 40,
     positionX: position,
+    positionRandom: random,
     takeDamage: function (damage) {
       this.health = Math.round(this.health - damage)
       if (this.health <= 0) this.die()
@@ -181,14 +178,16 @@ function makeCharacter (colour, position) {
 
 function placeCharacters () {
   // Make 2 players and place them at either end of the screen
-  var blueCharacter = makeCharacter('red', 40)
-  var yellowCharacter = makeCharacter('yellow', canvas.width - 40)
+  var blueCharacter = makeCharacter('red', 40, bluePosition)
+  var yellowCharacter = makeCharacter('yellow', canvas.width - 40, yellowPosition)
   // Put our characters into the characters array
   characters.push(blueCharacter)
   characters.push(yellowCharacter)
 }
 
 function nextTurn () {
+  repositionChars()
+  explode = false
   // We take the last character from our array of characters and 'pop' it off - this is our current player
   var player = characters.pop()
   // We then put that character back at the start of the array, using the bizarrely-named 'unshift'
@@ -242,7 +241,7 @@ function translateDistanceToPower (distance) {
 
 function drawPlayerMarker (player) {
   // Get the position of the player and draw a lil white triangle above it
-  var markerHeight = canvas.height - terrainHeight - player.height - 20
+  var markerHeight = canvas.height - player.positionRandom - player.height - 20
   context.beginPath()
   context.moveTo(player.positionX, markerHeight)
   context.lineTo(player.positionX - 20, markerHeight - 50)
@@ -295,7 +294,7 @@ function fireProjectile (player, angle, power) {
   var stepY = (power * Math.sin(radians)) / 10
   var projectile = {
     x: player.positionX,
-    y: canvas.height - terrainHeight - player.height
+    y: canvas.height - player.positionRandom - player.height
   }
 
   // setInterval runs a function repeatedly until we tell it to stop. It returns an ID, which we store
@@ -307,7 +306,7 @@ function fireProjectile (player, angle, power) {
     // Move the projectile and draw it
     projectile.x -= stepX
     projectile.y -= stepY
-    if (projectile.y >= canvas.height - terrainHeight) {
+    if (projectile.y >= canvas.height || explode === true ) {
       // If the projectile has hit the floor, explode it and go to next turn
       impactProjectile(projectile, 75)
       clearInterval(projectileIntervalID)
@@ -365,6 +364,14 @@ function endGame () {
 window.onresize = function () {
   setCanvas()
   render()
+}
+// turns variable explode to true when space bar is pressed
+window.onkeydown = function pressedKey(e) {
+
+    if (e.keyCode === 32) {
+       explode = true
+       repositionChars()
+    }
 }
 
 setCanvas()
