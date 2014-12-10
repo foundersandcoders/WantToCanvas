@@ -54,12 +54,11 @@ Physics(function (world) {
         return velX < sleepVelocityThreshold && velY < sleepVelocityThreshold
       })
       if (shouldSleep) {
-        //console.log('Going to sleep')
-        //world.pause()
+        console.log('Going to sleep')
+        world.pause()
         if (game.currentTurn.actionsRemaining == 0) nextTurn(world)
       }
     }
-    drawUI()
     world.render()
   })
 
@@ -73,6 +72,7 @@ Physics(function (world) {
   }, true)
 
   Physics.util.ticker.on(function (time) {
+    drawUI()
     world.step(time)
   })
 
@@ -291,6 +291,8 @@ function fireProjectile (player, angle, power, world) {
   activeObjects = []
   activeObjects.push(projectile)
   canSleep = false
+  world.unpause()
+
   setTimeout(function () { canSleep = true }, 500)
   world.on('collisions:detected', function (data) {
     data.collisions.forEach(function (collision) {
@@ -300,8 +302,7 @@ function fireProjectile (player, angle, power, world) {
       
       if (impactedProjectile) {
         if (collision.bodyA.uid == edgeUid || collision.bodyB.uid == edgeUid) {
-          world.removeBody(impactedProjectile)
-          nextTurn(world)
+          impactProjectile(impactedProjectile, 0, 0, world)
         } else {
           impactProjectile(impactedProjectile, 100, 0.5, world)
         }
@@ -326,6 +327,9 @@ function impactProjectile (projectile, explosionSize, damageFactor, world) {
   })
 
   world.removeBody(projectile)
+  activeObjects.forEach(function (object, i) {
+    if (object.uid == projectile.uid) activeObjects.splice(i, 1)
+  })
   game.currentTurn.actionsRemaining--
   nextTurn(world)
 }
