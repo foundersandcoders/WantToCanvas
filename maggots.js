@@ -120,16 +120,14 @@ function genTerrain (height, floor, world) {
   terrainVertices.push({ x: renderer.el.width, y: renderer.el.height })
   terrainVertices.push({ x: 0, y: renderer.el.height })
   // If you console.log(terrainVertices) here, you'll see that we have a list of coordinates describing our terrain
-  // Now, because PhysicsJS doesn't support concave polygons, we have to turn this into a bunch of simple shapes
-
+  // Now, because PhysicsJS doesn't support concave polygons, we have to turn this into a bunch of connected rectangles
   terrainVertices.forEach(function (vertex, i) {
     var nextVertex = terrainVertices[i+1]
     if (nextVertex == undefined) nextVertex = terrainVertices[0]
-    // Bunch of maths I copied off stackoverflow to get the distance and angle between this point and the next
+    // Bunch of maths I copied off stackoverflow to get the distance and angle (in radians) between this point and the next
     var distance = Math.sqrt(Math.pow((nextVertex.x - vertex.x), 2) + Math.pow((nextVertex.y - vertex.y), 2))
-    var theta = Math.atan2(nextVertex.y - vertex.y, nextVertex.x - vertex.x)
-    var angle = theta * (180 / Math.PI)
-
+    var angle = Math.atan2(nextVertex.y - vertex.y, nextVertex.x - vertex.x)
+    // We're making a rectangle as wide as 'distance', positioned and rotated to bridge the two points
     var rectangle = Physics.body('rectangle', {
       x: (vertex.x + nextVertex.x) / 2,
       y: (vertex.y + nextVertex.y) / 2,
