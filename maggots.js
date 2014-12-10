@@ -5,6 +5,10 @@ var deadCharacters = []
 var sleepVelocityThreshold = 0.001 // If nothing has a velocity higher than this, go to sleep
 var canSleep = false // We set this to true when things have started moving
 var shouldSleep = false // This gets set to true once everything's slowed down enough
+// Setup a canvas for drawing UI elements onto
+var uiCanvas = document.getElementById('ui')
+var uiContext = uiCanvas.getContext('2d')
+var canvas // We'll set this once we've started PhysicsJS and got a renderer
 
 /*
  * Start PhysicsJS, which will also handle rendering for us. We run the game from inside this function
@@ -17,11 +21,12 @@ Physics(function (world) {
     width: window.innerWidth,
     height: window.innerHeight
   })
+  canvas = renderer.el
 
   viewportBounds = Physics.aabb(0, 0, window.innerWidth, window.innerHeight)
 
   // Setup HammerJS, the mouse/touch gesture library we'll use for the controls
-  var hammer = new Hammer(renderer.el)
+  var hammer = new Hammer(uiCanvas)
   // HammerJS only listens for horizontal drags by default, here we tell it listen for all directions
   hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL })
 
@@ -44,8 +49,8 @@ Physics(function (world) {
 
   // resize canvas when the browser is resized
   window.addEventListener('resize', function () {
-    renderer.el.width = window.innerWidth
-    renderer.el.height = window.innerHeight
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
     viewportBounds = Physics.aabb(0, 0, window.innerWidth, window.innerHeight)
   }, true)
 
@@ -54,7 +59,7 @@ Physics(function (world) {
   })
 
   // Make our terrain and add it to the world
-  var terrain = genTerrain(renderer.el.height * 0.9, renderer.el.height * 0.2, world)
+  var terrain = genTerrain(canvas.height * 0.9, canvas.height * 0.23, world)
   world.add(terrain)
   // Add each of our characters to the world
   characters = getCharacters(world)
@@ -80,115 +85,20 @@ Physics(function (world) {
   }, 500)
 })
 
-function genTerrain (floor, height, world) {
-  var renderer = world.renderer()
-  var xPoints = []
-  var yPoints = []
-  // Get a number between 5 and 15. This will be the number of angles along our line
-  var numberOfPoints = Math.round(10 + (Math.random() * 20))
-  // Loop over this number, generating a number at least as high as 'floor' and as large as 'floor + height'
-  // These will represent the height of the peaks and valleys of our terrain
-  for (var i = 0; i < numberOfPoints; i++) {
-    var point = floor + (Math.random() * height)
-    yPoints.push(point)
-  }
-  // We do something similar again to decide how far apart these points are on the X axis, adding the previous value to
-  // each new random number so we get an increasing list of numbers with random gaps between them
-  for (var i = 0; i < numberOfPoints; i++) {
-    if (i > 0) var point = xPoints[i - 1] + 10 + (Math.random() * 100)
-    else var point = 10 + (Math.random() * 100)
-    xPoints.push(point)
-  }
-  // However, we now have a range of points on the X axis that may be larger than the width of our screen, so we squash them down
-  // Get the last point and divide it by the screen width, then multiply all points by this number
-  var squashFactor = renderer.el.width / (xPoints[xPoints.length - 1] / 2)
-
-  var compoundShape = Physics.body('compound', {
-    x: 0,
-    y: 0,
-    treatment: 'static',
-    styles: {
-      fillStyle: '#FFFFFF'
-    }
-  })
-  // Array.map() is a neato functional way of turning an array into another array
-  // We're looping through our array and making a new array of vector objects
-  var terrainVertices = xPoints.map(function (xPoint, i) {
-    var globalCoords = {
-      x: Math.round(xPoint * squashFactor),
-      y: Math.round(renderer.el.height - yPoints[i])
-    }
-    return compoundShape.toBodyCoords(new Physics.vector(globalCoords))
-  })
-  // We'll stretch the shape out way beyond the edges of the screen to be safe
-  var topRightCorner = compoundShape.toBodyCoords(new Physics.vector({
-    x: renderer.el.width + 10000,
-    y: terrainVertices[terrainVertices.length - 1].y
-  }))
-  var bottomRightCorner = compoundShape.toBodyCoords(new Physics.vector({
-    x: renderer.el.width + 10000,
-    y: renderer.el.height
-  }))
-  var bottomLeftCorner = compoundShape.toBodyCoords(new Physics.vector({
-    x: -10000,
-    y: renderer.el.height
-  }))
-   var topLeftCorner = compoundShape.toBodyCoords(new Physics.vector({
-    x: -10000,
-    y: terrainVertices[0].y
-  }))
-  terrainVertices.push(topRightCorner)
-  terrainVertices.push(bottomRightCorner)
-  terrainVertices.push(bottomLeftCorner)
-  terrainVertices.push(topLeftCorner)
-  // If you console.log(terrainVertices) here, you'll see that we have a list of coordinates describing our terrain
-  // Now, because PhysicsJS doesn't support concave polygons, we have to turn this into a bunch of connected rectangles
-  terrainVertices.forEach(function (vertex, i) {
-    var nextVertex = terrainVertices[i+1]
-    if (nextVertex == undefined) nextVertex = terrainVertices[0]
-    // Bunch of maths I copied off stackoverflow to get the distance and angle (in radians) between this point and the next
-    var distance = Math.sqrt(Math.pow((nextVertex.x - vertex.x), 2) + Math.pow((nextVertex.y - vertex.y), 2))
-    var angle = Math.atan2(nextVertex.y - vertex.y, nextVertex.x - vertex.x)
-    // We're making a rectangle as wide as 'distance', positioned and rotated to bridge the two points
-    var rectangle = Physics.body('rectangle', {
-      x: (vertex.x + nextVertex.x) / 2,
-      y: (vertex.y + nextVertex.y) / 2,
-      width: distance,
-      height: 10,
-      angle: angle
-    })
-
-    // var relativeCoords = compoundShape.toBodyCoords(new Physics.vector({ x: rectangle.state.pos.x, y: rectangle.state.pos.y }))
-    compoundShape.addChild(rectangle)
-  })
-  compoundShape.state.pos.x = renderer.el.width * 2
-  compoundShape.state.pos.y = renderer.el.height * 0.75
-  return compoundShape
-}
-
 function makeCharacter (name, position, world) {
   console.log(name, position)
-  var body = Physics.body('point', {
+  // Return an object that describes our new character
+  var body = Physics.body('circle', {
     x: position.x,
-    y: position.y
+    y: position.y,
+    radius: 5
   })
   body.treatment = 'dynamic'
   body.cof = 1
   body.restitution = 0
-  body.mass = 1
+  body.mass = 0.00001
   body.view = new Image(20, 120)
   body.view.src = 'img/' + name + '.png'
-  // world.renderer().createView(Physics.geometry('convex-polygon', {
-  //   vertices: [
-  //     { x: 0, y: 0 },
-  //     { x: -10, y: -30 },
-  //     { x: 10, y: -30 }
-  //   ],
-  //   styles: {
-  //     fillStyle: colour
-  //   }
-  // }))
-  // Return an object that describes our new character
   body.gameData = {
     health: 100,
     takeDamage: function (damage) {
@@ -213,12 +123,12 @@ function makeCharacter (name, position, world) {
 function getCharacters (world) {
   var renderer = world.renderer()
   var characters = []
-  characters.push(makeCharacter('player1', { x: renderer.el.width * 0.1, y: renderer.el.height * 0.3 }, world))
-  characters.push(makeCharacter('player2', { x: renderer.el.width * 0.9, y: renderer.el.height * 0.3 }, world))
+  characters.push(makeCharacter('player1', { x: canvas.width * 0.1, y: canvas.height * 0.3 }, world))
+  characters.push(makeCharacter('player2', { x: canvas.width * 0.9, y: canvas.height * 0.3 }, world))
   return characters
 }
 
-function nextTurn () {
+function nextTurn (world) {
   // We take the last character from our array of characters and 'pop' it off - this is our current player
   var player = characters.pop()
   // We then put that character back at the start of the array, using the bizarrely-named 'unshift'
@@ -240,8 +150,8 @@ function nextTurn () {
     // HammerJS tells us where the user started dragging relative to the page, not the canvas - translate here
     // We grab the position at the start of the drag and remember it to draw a nice arrow from
     var center = {
-      x: event.center.x - canvas.getBoundingClientRect().left,
-      y: event.center.y - canvas.getBoundingClientRect().top
+      x: event.center.x - uiCanvas.getBoundingClientRect().left,
+      y: event.center.y - uiCanvas.getBoundingClientRect().top
     }
     hammer.on('pan', function (event) {
       // The distance of the drag is measured in pixels, so we have to standardise it before
@@ -378,14 +288,91 @@ function impactProjectile (projectile, explosionSize) {
 
 function endGame () {
   // drawUI checks the length of the characters array and displays game over, so we just render
-  render()
+  console.log('game over man...')
 }
 
-/*
- * Main screen turn on...
- */
+function genTerrain (floor, height, world) {
+  var renderer = world.renderer()
+  var xPoints = []
+  var yPoints = []
+  // Get a number between 5 and 15. This will be the number of angles along our line
+  var numberOfPoints = Math.round(10 + (Math.random() * 20))
+  // Loop over this number, generating a number at least as high as 'floor' and as large as 'floor + height'
+  // These will represent the height of the peaks and valleys of our terrain
+  for (var i = 0; i < numberOfPoints; i++) {
+    var point = floor + (Math.random() * height)
+    yPoints.push(point)
+  }
+  // We do something similar again to decide how far apart these points are on the X axis, adding the previous value to
+  // each new random number so we get an increasing list of numbers with random gaps between them
+  for (var i = 0; i < numberOfPoints; i++) {
+    if (i > 0) var point = xPoints[i - 1] + 10 + (Math.random() * 100)
+    else var point = 10 + (Math.random() * 100)
+    xPoints.push(point)
+  }
+  // However, we now have a range of points on the X axis that may be larger than the width of our screen, so we squash them down
+  // Get the last point and divide it by the screen width, then multiply all points by this number
+  var squashFactor = canvas.width / (xPoints[xPoints.length - 1] / 2)
 
-//setCanvas()
-// placeCharacters()
-// nextTurn()
-//render()
+  var compoundShape = Physics.body('compound', {
+    x: 0,
+    y: 0,
+    treatment: 'static',
+    styles: {
+      fillStyle: '#FFFFFF'
+    }
+  })
+  // Array.map() is a neato functional way of turning an array into another array
+  // We're looping through our array and making a new array of vector objects
+  var terrainVertices = xPoints.map(function (xPoint, i) {
+    var globalCoords = {
+      x: Math.round(xPoint * squashFactor),
+      y: Math.round(canvas.height - yPoints[i])
+    }
+    return compoundShape.toBodyCoords(new Physics.vector(globalCoords))
+  })
+  // We'll stretch the shape out way beyond the edges of the screen to be safe
+  var topRightCorner = compoundShape.toBodyCoords(new Physics.vector({
+    x: canvas.width + 10000,
+    y: terrainVertices[terrainVertices.length - 1].y
+  }))
+  var bottomRightCorner = compoundShape.toBodyCoords(new Physics.vector({
+    x: canvas.width + 10000,
+    y: canvas.height
+  }))
+  var bottomLeftCorner = compoundShape.toBodyCoords(new Physics.vector({
+    x: -10000,
+    y: canvas.height
+  }))
+   var topLeftCorner = compoundShape.toBodyCoords(new Physics.vector({
+    x: -10000,
+    y: terrainVertices[0].y
+  }))
+  terrainVertices.push(topRightCorner)
+  terrainVertices.push(bottomRightCorner)
+  terrainVertices.push(bottomLeftCorner)
+  terrainVertices.push(topLeftCorner)
+  // If you console.log(terrainVertices) here, you'll see that we have a list of coordinates describing our terrain
+  // Now, because PhysicsJS doesn't support concave polygons, we have to turn this into a bunch of connected rectangles
+  terrainVertices.forEach(function (vertex, i) {
+    var nextVertex = terrainVertices[i+1]
+    if (nextVertex == undefined) nextVertex = terrainVertices[0]
+    // Bunch of maths I copied off stackoverflow to get the distance and angle (in radians) between this point and the next
+    var distance = Math.sqrt(Math.pow((nextVertex.x - vertex.x), 2) + Math.pow((nextVertex.y - vertex.y), 2))
+    var angle = Math.atan2(nextVertex.y - vertex.y, nextVertex.x - vertex.x)
+    // We're making a rectangle as wide as 'distance', positioned and rotated to bridge the two points
+    var rectangle = Physics.body('rectangle', {
+      x: (vertex.x + nextVertex.x) / 2,
+      y: (vertex.y + nextVertex.y) / 2,
+      width: distance,
+      height: 1,
+      angle: angle
+    })
+
+    // var relativeCoords = compoundShape.toBodyCoords(new Physics.vector({ x: rectangle.state.pos.x, y: rectangle.state.pos.y }))
+    compoundShape.addChild(rectangle)
+  })
+  compoundShape.state.pos.x = canvas.width * 2
+  compoundShape.state.pos.y = canvas.height * 0.75
+  return compoundShape
+}
