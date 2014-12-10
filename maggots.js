@@ -26,6 +26,11 @@ var hammer = new Hammer(uiCanvas)
 // HammerJS only listens for horizontal drags by default, here we tell it listen for all directions
 hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL })
 
+var messages = {
+  'aiming-jump': 'Aim a jump by dragging in the opposite direction',
+  'aiming-shot': 'Aim a shot by dragging in the opposite direction'
+}
+
 /*
  * Start PhysicsJS, which will also handle rendering for us. We run the game from inside this function
  */
@@ -54,6 +59,7 @@ Physics(function (world) {
         return velX < sleepVelocityThreshold && velY < sleepVelocityThreshold
       })
       if (shouldSleep) {
+        activeObjects = []
         console.log('Going to sleep')
         world.pause()
         if (game.currentTurn.actionsRemaining == 0) nextTurn(world)
@@ -132,7 +138,7 @@ function makeCharacter (name, position, world) {
       console.log('game over man')
       var self = this
       game.characters.forEach(function (char, index) {
-        if (char == self) game.characters.pop(index)
+        if (char.gameData == self) game.characters.pop(index)
       })
       game.deadCharacters.push(self)
       if (game.characters.length < 2) {
@@ -152,15 +158,7 @@ function getCharacters (world) {
   return chars
 }
 
-function nextTurn (world) {
-  // We take the last character from our array of characters and 'pop' it off - this is our current player
-  var player = game.characters.pop()
-  // We then put that character back at the start of the array, using the bizarrely-named 'unshift'
-  game.characters.unshift(player)
-  game.currentTurn.actionsRemaining = 2
-  console.log('Starting turn for '+ player.gameData.name +' player')
-  // Redraw the screen, to update the marker position
-
+function aim (world, callback) {
   // Start listening for the start of a mouse/finger drag
   /*
   * We're calling hammer.on three times here, to listen for three different types of events; 'panstart'
@@ -177,6 +175,7 @@ function nextTurn (world) {
       x: event.center.x - uiCanvas.getBoundingClientRect().left,
       y: event.center.y - uiCanvas.getBoundingClientRect().top
     }
+    console.log(event)
     hammer.on('pan', function (event) {
       // The distance of the drag is measured in pixels, so we have to standardise it before
       // translating it into the 'power' of our shot. You might want to console.log out event.angle
@@ -191,12 +190,95 @@ function nextTurn (world) {
   })
   
   hammer.on('panend', function (event) {
+    hammer.off('panstart pan panend')
     // The player has stopped dragging, let loose!
     var power = translateDistanceToPower(event.distance)
-    fireProjectile(game.characters[0], event.angle, power, world)
+    callback(event.angle, power, world)
     game.aimArrow = null
     // Stop listening to input until the next turn
-    hammer.off('panstart pan panend')
+  })
+}
+
+function nextTurn (world) {
+  // We take the last character from our array of characters and 'pop' it off - this is our current player
+  var player = game.characters.pop()
+  // We then put that character back at the start of the array, using the bizarrely-named 'unshift'
+  game.characters.unshift(player)
+
+  game.currentTurn.actionsRemaining = 3
+  game.currentTurn.state = 'aiming-jump'
+  aim(world, function (angle, power, world) {
+    jump(angle, power, world, function (world) {
+      game.currentTurn.state = 'aiming-shot'
+      aim(world, function (angle, power, world) {
+        fireProjectile(angle, power, world)
+      })
+    })
+  })
+}
+
+function jump (angle, power, world, callback) {
+  console.log(angle, power)
+  canSleep = false
+  setTimeout(function () { canSleep = true }, 500)
+  var player = game.characters[0]
+  game.currentTurn.actionsRemaining--
+  game.currentTurn.state = 'jumping'
+  var radians = angle * Math.PI / 180
+  var stepX = (power * Math.cos(radians)) / 100000000
+  var stepY = (power * Math.sin(radians)) / 100000000
+  game.characters.forEach(function (char) { char.treatment = 'static' })
+  player.treatment = 'dynamic'
+  player.applyForce({ x: -stepX, y: -stepY })
+  activeObjects.push(player)
+  world.unpause()
+  callback(world)
+}
+
+function fireProjectile (angle, power, world) {
+  canSleep = false
+  setTimeout(function () { canSleep = true }, 500)
+  var player = game.characters[0]
+  game.currentTurn.actionsRemaining--
+  game.currentTurn.state = 'firing'
+  // We use the angle to work out how many pixels we should move the projectile each frame
+  var radians = angle * Math.PI / 180
+  var stepX = (power * Math.cos(radians)) / 8000
+  var stepY = (power * Math.sin(radians)) / 8000
+  var projectile = Physics.body('circle', {
+    x: player.state.pos.x - stepX,
+    y: player.state.pos.y - 60 - stepY,
+    radius: 4,
+    styles: {
+      strokeStyle: 'white',
+      fillStyle: 'white',
+      lineWidth: 4
+    }
+  })
+  projectile.restitution = 0.5
+  projectile.cof = 0.1
+  projectile.mass = 0.1
+  projectile.applyForce({ x: -stepX, y: -stepY })
+
+  world.add(projectile)
+  game.characters.forEach(function (char) { char.treatment = 'static' })
+  activeObjects.push(projectile)
+  world.unpause()
+
+  world.on('collisions:detected', function (data) {
+    data.collisions.forEach(function (collision) {
+      var impactedProjectile
+      if (collision.bodyA.uid == projectile.uid) impactedProjectile = collision.bodyA
+      if (collision.bodyB.uid == projectile.uid) impactedProjectile = collision.bodyB
+      
+      if (impactedProjectile) {
+        if (collision.bodyA.uid == edgeUid || collision.bodyB.uid == edgeUid) {
+          impactProjectile(impactedProjectile, 0, 0, world)
+        } else {
+          impactProjectile(impactedProjectile, 100, 0.5, world)
+        }
+      }
+    })
   })
 }
 
@@ -247,6 +329,10 @@ function drawUI () {
     uiContext.stroke()
   }
 
+  uiContext.fillStyle = 'white'
+  var messageText = messages[game.currentTurn.state]
+  uiContext.fillText(messageText, canvas.width - 30 - (uiContext.measureText(messageText).width), 40)
+
   if (game.characters.length == 1) {
     var winner = game.characters[0]
     uiContext.fillStyle = 'white'
@@ -264,51 +350,6 @@ function drawUI () {
       i++
     })
   }
-}
-
-function fireProjectile (player, angle, power, world) {
-  game.currentTurn.actionsRemaining--
-  drawUI()
-  // We use the angle to work out how many pixels we should move the projectile each frame
-  var radians = angle * Math.PI / 180
-  var stepX = (power * Math.cos(radians)) / 8000
-  var stepY = (power * Math.sin(radians)) / 8000
-  var projectile = Physics.body('circle', {
-    x: player.state.pos.x,
-    y: player.state.pos.y - 60,
-    radius: 7,
-    styles: {
-      fillStyle: '#FFFFFF'
-    }
-  })
-  projectile.restitution = 0.5
-  projectile.cof = 0.1
-  projectile.mass = 0.1
-  projectile.applyForce({ x: -stepX, y: -stepY })
-
-  world.add(projectile)
-  game.characters.forEach(function (char) { char.treatment = 'static' })
-  activeObjects = []
-  activeObjects.push(projectile)
-  canSleep = false
-  world.unpause()
-
-  setTimeout(function () { canSleep = true }, 500)
-  world.on('collisions:detected', function (data) {
-    data.collisions.forEach(function (collision) {
-      var impactedProjectile
-      if (collision.bodyA.uid == projectile.uid) impactedProjectile = collision.bodyA
-      if (collision.bodyB.uid == projectile.uid) impactedProjectile = collision.bodyB
-      
-      if (impactedProjectile) {
-        if (collision.bodyA.uid == edgeUid || collision.bodyB.uid == edgeUid) {
-          impactProjectile(impactedProjectile, 0, 0, world)
-        } else {
-          impactProjectile(impactedProjectile, 100, 0.5, world)
-        }
-      }
-    })
-  })
 }
 
 function impactProjectile (projectile, explosionSize, damageFactor, world) {
