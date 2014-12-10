@@ -51,20 +51,22 @@ Physics(function (world) {
   world.add(renderer)
   // render on each step
   world.on('step', function () {
-    if (canSleep) {
-      // If every character's velocity is below our threshold, it's bedtime
-      shouldSleep = activeObjects.every(function (object) {
-        var velX = object.state.vel.x > 0 ? object.state.vel.x : 0 - object.state.vel.x
-        var velY = object.state.vel.y > 0 ? object.state.vel.y : 0 - object.state.vel.y
-        return velX < sleepVelocityThreshold && velY < sleepVelocityThreshold
-      })
-      if (shouldSleep) {
-        activeObjects = []
-        console.log('Going to sleep')
-        world.pause()
-        if (game.currentTurn.actionsRemaining == 0) nextTurn(world)
-      }
-    }
+    // if (canSleep) {
+    //   // If every character's velocity is below our threshold, it's bedtime
+    //   shouldSleep = activeObjects.every(function (object) {
+    //     var velX = object.state.vel.x > 0 ? object.state.vel.x : 0 - object.state.vel.x
+    //     var velY = object.state.vel.y > 0 ? object.state.vel.y : 0 - object.state.vel.y
+    //     return velX < sleepVelocityThreshold && velY < sleepVelocityThreshold
+    //   })
+    //   if (shouldSleep) {
+    //     activeObjects = []
+    //     console.log('Going to sleep')
+    //     world.pause()
+    //     if (game.currentTurn.actionsRemaining == 0) nextTurn(world)
+    //   }
+    // }
+    var sleeping = activeObjects.every(function (object) { return object.asleep })
+    if (sleeping && game.currentTurn.actionsRemaining == 0) nextTurn(world)
     world.render()
   })
 
@@ -122,7 +124,7 @@ function makeCharacter (name, position, world) {
     radius: 5
   })
   body.treatment = 'dynamic'
-  body.cof = 0.5
+  body.cof = 0.8
   body.restitution = 0
   body.mass = 0.00001
   body.view = new Image(20, 120)
@@ -175,7 +177,6 @@ function aim (world, callback) {
       x: event.center.x - uiCanvas.getBoundingClientRect().left,
       y: event.center.y - uiCanvas.getBoundingClientRect().top
     }
-    console.log(event)
     hammer.on('pan', function (event) {
       // The distance of the drag is measured in pixels, so we have to standardise it before
       // translating it into the 'power' of our shot. You might want to console.log out event.angle
@@ -218,20 +219,21 @@ function nextTurn (world) {
 }
 
 function jump (angle, power, world, callback) {
-  console.log(angle, power)
+  world.wakeUpAll()
   canSleep = false
   setTimeout(function () { canSleep = true }, 500)
   var player = game.characters[0]
   game.currentTurn.actionsRemaining--
   game.currentTurn.state = 'jumping'
   var radians = angle * Math.PI / 180
-  var stepX = (power * Math.cos(radians)) / 100000000
-  var stepY = (power * Math.sin(radians)) / 100000000
+  var stepX = (power * Math.cos(radians)) / 130000000
+  var stepY = (power * Math.sin(radians)) / 130000000
   game.characters.forEach(function (char) { char.treatment = 'static' })
   player.treatment = 'dynamic'
-  player.applyForce({ x: -stepX, y: -stepY })
-  activeObjects.push(player)
   world.unpause()
+  player.applyForce({ x: -stepX, y: -stepY })
+  console.log(player, stepX, stepY)
+  activeObjects.push(player)
   callback(world)
 }
 
