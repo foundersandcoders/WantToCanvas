@@ -51,20 +51,6 @@ Physics(function (world) {
   world.add(renderer)
   // render on each step
   world.on('step', function () {
-    // if (canSleep) {
-    //   // If every character's velocity is below our threshold, it's bedtime
-    //   shouldSleep = activeObjects.every(function (object) {
-    //     var velX = object.state.vel.x > 0 ? object.state.vel.x : 0 - object.state.vel.x
-    //     var velY = object.state.vel.y > 0 ? object.state.vel.y : 0 - object.state.vel.y
-    //     return velX < sleepVelocityThreshold && velY < sleepVelocityThreshold
-    //   })
-    //   if (shouldSleep) {
-    //     activeObjects = []
-    //     console.log('Going to sleep')
-    //     world.pause()
-    //     if (game.currentTurn.actionsRemaining == 0) nextTurn(world)
-    //   }
-    // }
     var sleeping = activeObjects.every(function (object) { return object.asleep })
     if (sleeping && game.currentTurn.actionsRemaining == 0) nextTurn(world)
     world.render()
@@ -333,7 +319,7 @@ function drawUI () {
 
   uiContext.fillStyle = 'white'
   var messageText = messages[game.currentTurn.state]
-  uiContext.fillText(messageText, canvas.width - 30 - (uiContext.measureText(messageText).width), 40)
+  if (messageText) uiContext.fillText(messageText, canvas.width - 30 - (uiContext.measureText(messageText).width), 40)
 
   if (game.characters.length == 1) {
     var winner = game.characters[0]
