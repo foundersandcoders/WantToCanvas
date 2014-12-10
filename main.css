@@ -9,6 +9,7 @@ canvas#viewport {
   background-color: #88CCE7;
 }
 canvas#ui {
+  z-index: 2;
   background-color: transparent;
   position: absolute;
   top: 0;

@@ -1,14 +1,30 @@
 // Set up the state of our game first
-var characters = []
-var deadCharacters = []
+var game = {
+  characters: [],
+  deadCharacters: [],
+  currentTurn: {
+    state: null,
+    actionsRemaining: 0
+  },
+  explosions: [],
+  aimArrow: null
+}
 // These three variables are to do with "sleeping" the physics engine when things have stopped moving
 var sleepVelocityThreshold = 0.001 // If nothing has a velocity higher than this, go to sleep
 var canSleep = false // We set this to true when things have started moving
 var shouldSleep = false // This gets set to true once everything's slowed down enough
+var activeObjects = []
 // Setup a canvas for drawing UI elements onto
 var uiCanvas = document.getElementById('ui')
+uiCanvas.width = window.innerWidth
+uiCanvas.height = window.innerHeight
 var uiContext = uiCanvas.getContext('2d')
 var canvas // We'll set this once we've started PhysicsJS and got a renderer
+var edgeUid
+// Setup HammerJS, the mouse/touch gesture library we'll use for the controls
+var hammer = new Hammer(uiCanvas)
+// HammerJS only listens for horizontal drags by default, here we tell it listen for all directions
+hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL })
 
 /*
  * Start PhysicsJS, which will also handle rendering for us. We run the game from inside this function
@@ -23,12 +39,8 @@ Physics(function (world) {
   })
   canvas = renderer.el
 
-  viewportBounds = Physics.aabb(0, 0, window.innerWidth, window.innerHeight)
-
-  // Setup HammerJS, the mouse/touch gesture library we'll use for the controls
-  var hammer = new Hammer(uiCanvas)
-  // HammerJS only listens for horizontal drags by default, here we tell it listen for all directions
-  hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL })
+  // We'll add 10000 to the ceiling of the world, so that shots can arc off the top of the screen
+  viewportBounds = Physics.aabb(0, -10000, window.innerWidth, window.innerHeight + 10000)
 
   // add the renderer to the world
   world.add(renderer)
@@ -36,14 +48,18 @@ Physics(function (world) {
   world.on('step', function () {
     if (canSleep) {
       // If every character's velocity is below our threshold, it's bedtime
-      shouldSleep = characters.every(function (char) {
-        return char.state.vel.x < sleepVelocityThreshold && char.state.vel.y < sleepVelocityThreshold
+      shouldSleep = activeObjects.every(function (object) {
+        var velX = object.state.vel.x > 0 ? object.state.vel.x : 0 - object.state.vel.x
+        var velY = object.state.vel.y > 0 ? object.state.vel.y : 0 - object.state.vel.y
+        return velX < sleepVelocityThreshold && velY < sleepVelocityThreshold
       })
       if (shouldSleep) {
-        console.log('Going to sleep')
-        world.pause()
+        //console.log('Going to sleep')
+        //world.pause()
+        if (game.currentTurn.actionsRemaining == 0) nextTurn(world)
       }
     }
+    drawUI()
     world.render()
   })
 
@@ -51,6 +67,8 @@ Physics(function (world) {
   window.addEventListener('resize', function () {
     canvas.width = window.innerWidth
     canvas.height = window.innerHeight
+    uiCanvas.width = window.innerWidth
+    uiCanvas.height = window.innerHeight
     viewportBounds = Physics.aabb(0, 0, window.innerWidth, window.innerHeight)
   }, true)
 
@@ -62,21 +80,25 @@ Physics(function (world) {
   var terrain = genTerrain(canvas.height * 0.9, canvas.height * 0.23, world)
   world.add(terrain)
   // Add each of our characters to the world
-  characters = getCharacters(world)
-  characters.forEach(function (character) {
+  game.characters = getCharacters(world)
+  game.characters.forEach(function (character) {
+    activeObjects.push(character)
     world.add(character)
   })
   // Add gravity and collision detection
+  // We need to remember the ID of the edge detection behaviour for use in the fireProjectile function
+  var edgeBehaviour = Physics.behavior('edge-collision-detection', {
+    aabb: viewportBounds,
+    restitution: 0.99,
+    cof: 0.8
+  })
+  edgeUid = edgeBehaviour.body.uid
   world.add([
     Physics.behavior('constant-acceleration'),
     Physics.behavior('body-impulse-response'),
     Physics.behavior('body-collision-detection'),
     Physics.behavior('sweep-prune'),
-    Physics.behavior('edge-collision-detection', {
-      aabb: viewportBounds,
-      restitution: 0.99,
-      cof: 0.8
-    })
+    edgeBehaviour
   ])
 
   Physics.util.ticker.start()
@@ -94,24 +116,26 @@ function makeCharacter (name, position, world) {
     radius: 5
   })
   body.treatment = 'dynamic'
-  body.cof = 1
+  body.cof = 0.5
   body.restitution = 0
   body.mass = 0.00001
   body.view = new Image(20, 120)
   body.view.src = 'img/' + name + '.png'
   body.gameData = {
+    name: name,
     health: 100,
     takeDamage: function (damage) {
       this.health = Math.round(this.health - damage)
       if (this.health <= 0) this.die()
     },
     die: function () {
+      console.log('game over man')
       var self = this
-      characters.forEach(function (char, index) {
-        if (char == self) characters.pop(index)
+      game.characters.forEach(function (char, index) {
+        if (char == self) game.characters.pop(index)
       })
-      deadCharacters.push(self)
-      if (characters.length < 2) {
+      game.deadCharacters.push(self)
+      if (game.characters.length < 2) {
         console.log('game over man')
         endGame()
       }
@@ -122,20 +146,20 @@ function makeCharacter (name, position, world) {
 
 function getCharacters (world) {
   var renderer = world.renderer()
-  var characters = []
-  characters.push(makeCharacter('player1', { x: canvas.width * 0.1, y: canvas.height * 0.3 }, world))
-  characters.push(makeCharacter('player2', { x: canvas.width * 0.9, y: canvas.height * 0.3 }, world))
-  return characters
+  var chars = []
+  chars.push(makeCharacter('player1', { x: canvas.width * 0.1, y: canvas.height * 0.3 }, world))
+  chars.push(makeCharacter('player2', { x: canvas.width * 0.9, y: canvas.height * 0.3 }, world))
+  return chars
 }
 
 function nextTurn (world) {
   // We take the last character from our array of characters and 'pop' it off - this is our current player
-  var player = characters.pop()
+  var player = game.characters.pop()
   // We then put that character back at the start of the array, using the bizarrely-named 'unshift'
-  characters.unshift(player)
-  console.log('Starting turn for '+ player.colour +' player')
+  game.characters.unshift(player)
+  game.currentTurn.actionsRemaining = 2
+  console.log('Starting turn for '+ player.gameData.name +' player')
   // Redraw the screen, to update the marker position
-  render()
 
   // Start listening for the start of a mouse/finger drag
   /*
@@ -158,14 +182,19 @@ function nextTurn (world) {
       // translating it into the 'power' of our shot. You might want to console.log out event.angle
       // here to see how HammerJS gives us angles.
       var power = translateDistanceToPower(event.distance)
-      drawAimArrow(center, event.angle, power)
+      game.aimArrow = {
+        start: center,
+        angle: event.angle,
+        power: power
+      }
     })
   })
   
   hammer.on('panend', function (event) {
     // The player has stopped dragging, let loose!
     var power = translateDistanceToPower(event.distance)
-    fireProjectile(characters[0], event.angle, power)
+    fireProjectile(game.characters[0], event.angle, power, world)
+    game.aimArrow = null
     // Stop listening to input until the next turn
     hammer.off('panstart pan panend')
   })
@@ -182,108 +211,123 @@ function translateDistanceToPower (distance) {
 
 function drawPlayerMarker (player) {
   // Get the position of the player and draw a lil white triangle above it
-  var markerHeight = canvas.height - terrainHeight - player.height - 20
-  context.beginPath()
-  context.closePath()
-  context.fillStyle = 'white'
-  context.fill()
+  uiContext.beginPath()
+  uiContext.moveTo(player.state.pos.x, player.state.pos.y - 70)
+  uiContext.lineTo(player.state.pos.x - 10, player.state.pos.y - 90)
+  uiContext.lineTo(player.state.pos.x + 10, player.state.pos.y - 90)
+  uiContext.closePath()
+  uiContext.fillStyle = 'white'
+  uiContext.fill()
 }
 
 function drawUI () {
-  if (characters.length == 1) {
-    var winner = characters[0]
-    context.fillStyle = 'white'
+  uiContext.clearRect(0, 0, uiCanvas.width, uiCanvas.height)
+  drawPlayerMarker(game.characters[0])
+  // Draw any ongoing explosions
+  game.explosions.forEach(function (explosion, i) {
+    if (explosion.size >= explosion.maxSize) game.explosions.splice(i, 1)
+    uiContext.beginPath()
+    uiContext.arc(explosion.position.x, explosion.position.y, explosion.size, 0, Math.PI * 2, false)
+    uiContext.lineWidth = 4
+    uiContext.strokeStyle = '#E9FA8F'
+    uiContext.stroke()
+    explosion.size += explosion.size * 0.3
+  })
+
+  if (game.aimArrow) {
+    // Do some maths I copied from the internet
+    var radians = game.aimArrow.angle * Math.PI / 180
+    var arrowToX = game.aimArrow.start.x - game.aimArrow.power * Math.cos(radians)
+    var arrowToY = game.aimArrow.start.y - game.aimArrow.power * Math.sin(radians)
+    // Draw the line
+    uiContext.moveTo(game.aimArrow.start.x, game.aimArrow.start.y)
+    uiContext.lineTo(arrowToX, arrowToY)
+    uiContext.strokeStyle = 'white'
+    uiContext.lineWidth = 1
+    uiContext.stroke()
+  }
+
+  if (game.characters.length == 1) {
+    var winner = game.characters[0]
+    uiContext.fillStyle = 'white'
     var text = '> '+ winner.colour +' player == "champion"'
-    context.fillText(text, canvas.width / 2 - (context.measureText(text).width / 2), canvas.height / 2 - 20)
-    context.fillText('true', canvas.width / 2 - (context.measureText(text).width / 2), canvas.height / 2 + 20)
+    uiContext.fillText(text, canvas.width / 2 - (uiContext.measureText(text).width / 2), canvas.height / 2 - 20)
+    uiContext.fillText('true', canvas.width / 2 - (uiContext.measureText(text).width / 2), canvas.height / 2 + 20)
   } else {
     var i = 1
-    characters.forEach(function (char) {
-      if (i == 1) context.fillStyle = 'green'
-      else context.fillStyle = 'white'
-      context.font = '20px courier'
-      var text = char.colour + ': ' + char.health
-      context.fillText(text, 30, i * 40)
+    game.characters.forEach(function (char) {
+      if (i == 1) uiContext.fillStyle = 'green'
+      else uiContext.fillStyle = 'white'
+      uiContext.font = '20px courier'
+      var text = char.gameData.name + ': ' + char.gameData.health
+      uiContext.fillText(text, 30, i * 40)
       i++
     })
   }
 }
 
-function drawAimArrow (start, angle, power) {
-  // Once we've detected player input, we draw an arrow to show the power & direction of their planned shot
-  // Refresh the screen first
-  render()
-  // Do some maths I copied from the internet
-  var radians = angle * Math.PI / 180
-  var arrowToX = start.x - power * Math.cos(radians)
-  var arrowToY = start.y - power * Math.sin(radians)
-  // Draw the line
-  context.moveTo(start.x, start.y)
-  context.lineTo(arrowToX, arrowToY)
-  context.strokeStyle = 'white'
-  context.stroke()
-}
-
-function fireProjectile (player, angle, power) {
-  render()
+function fireProjectile (player, angle, power, world) {
+  game.currentTurn.actionsRemaining--
+  drawUI()
   // We use the angle to work out how many pixels we should move the projectile each frame
   var radians = angle * Math.PI / 180
-  var stepX = (power * Math.cos(radians)) / 10
-  var stepY = (power * Math.sin(radians)) / 10
-  var projectile = {
-    x: player.positionX,
-    y: canvas.height - terrainHeight - player.height
-  }
-
-  // setInterval runs a function repeatedly until we tell it to stop. It returns an ID, which we store
-  // here as projectileIntervalID, and tell it stop by calling clearInterval(projectileInterval) later on
-  var projectileIntervalID = setInterval(function () {
-    render()
-    // Apply gravity to our vertical speed (remember negative Y = up in canvas!)
-    stepY -= gravity
-    // Move the projectile and draw it
-    projectile.x -= stepX
-    projectile.y -= stepY
-    if (projectile.y >= canvas.height - terrainHeight) {
-      // If the projectile has hit the floor, explode it and go to next turn
-      impactProjectile(projectile, 75)
-      clearInterval(projectileIntervalID)
-      nextTurn()
-    } else {
-      drawProjectile(projectile)
-    }
-  }, 10)
-}
-
-function drawProjectile (projectile) {
-  context.beginPath()
-  context.arc(projectile.x, projectile.y, 10, 0, 2 * Math.PI, false)
-  context.fillStyle = 'white'
-  context.fill()
-}
-
-function impactProjectile (projectile, explosionSize) {
-  // Start an interval to draw an expanding circle until it's bigger than our explosionSize
-  var radius = 1
-  var explosionIntervalID = setInterval(function () {
-    render()
-    if (radius > explosionSize) {
-      clearInterval(explosionIntervalID)
-      return
-    }
-    context.beginPath()
-    context.arc(projectile.x, projectile.y, radius, 0, 2 * Math.PI, false)
-    context.fillStyle = 'gray'
-    context.fill()
-    radius += 5
-  }, 100)
-  characters.forEach(function (char) {
-    var distance = projectile.x - char.positionX
-    if (distance < 0) distance = 0 - distance
-    if (distance < explosionSize) {
-      char.takeDamage(explosionSize - distance)
+  var stepX = (power * Math.cos(radians)) / 8000
+  var stepY = (power * Math.sin(radians)) / 8000
+  var projectile = Physics.body('circle', {
+    x: player.state.pos.x,
+    y: player.state.pos.y - 60,
+    radius: 7,
+    styles: {
+      fillStyle: '#FFFFFF'
     }
   })
+  projectile.restitution = 0.5
+  projectile.cof = 0.1
+  projectile.mass = 0.1
+  projectile.applyForce({ x: -stepX, y: -stepY })
+
+  world.add(projectile)
+  game.characters.forEach(function (char) { char.treatment = 'static' })
+  activeObjects = []
+  activeObjects.push(projectile)
+  canSleep = false
+  setTimeout(function () { canSleep = true }, 500)
+  world.on('collisions:detected', function (data) {
+    data.collisions.forEach(function (collision) {
+      var impactedProjectile
+      if (collision.bodyA.uid == projectile.uid) impactedProjectile = collision.bodyA
+      if (collision.bodyB.uid == projectile.uid) impactedProjectile = collision.bodyB
+      
+      if (impactedProjectile) {
+        if (collision.bodyA.uid == edgeUid || collision.bodyB.uid == edgeUid) {
+          world.removeBody(impactedProjectile)
+          nextTurn(world)
+        } else {
+          impactProjectile(impactedProjectile, 100, 0.5, world)
+        }
+      }
+    })
+  })
+}
+
+function impactProjectile (projectile, explosionSize, damageFactor, world) {
+  game.explosions.push({
+    position: projectile.state.pos,
+    maxSize: explosionSize,
+    size: 1
+  })
+
+  game.characters.forEach(function (char) {
+    var distance = Math.sqrt(Math.pow((char.state.pos.x - projectile.state.pos.x), 2) + Math.pow((char.state.pos.y - projectile.state.pos.y), 2))
+    var angle = Math.atan2(char.state.pos.y - projectile.state.pos.y, char.state.pos.x - projectile.state.pos.x)
+    if (distance < explosionSize) {
+      char.gameData.takeDamage((explosionSize - distance) * damageFactor)
+    }
+  })
+
+  world.removeBody(projectile)
+  game.currentTurn.actionsRemaining--
+  nextTurn(world)
 }
 
 function endGame () {
@@ -319,7 +363,9 @@ function genTerrain (floor, height, world) {
     y: 0,
     treatment: 'static',
     styles: {
-      fillStyle: '#FFFFFF'
+      fillStyle: '#FFFFFF',
+      strokeStyle: '#FFFFFF',
+      lineWidth: 3
     }
   })
   // Array.map() is a neato functional way of turning an array into another array
