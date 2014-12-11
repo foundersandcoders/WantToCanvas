@@ -143,7 +143,7 @@ function drawUI () {
   if (messageText) uiContext.fillText(messageText, canvas.width - 30 - (uiContext.measureText(messageText).width), 40)
 
   if (game.characters.length == 1) {
-    game.currentTurn.state == 'gameover'
+    game.currentTurn.state = 'gameover'
     var winner = game.characters[0]
     uiContext.fillStyle = 'white'
     var text = '> '+ winner.gameData.name + ' == "champion"'
