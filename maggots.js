@@ -7,13 +7,22 @@ var game = {
     actionsRemaining: 0
   },
   explosions: [],
-  aimArrow: null
+  aimArrow: null,
+  activeObjects: []
 }
-// These three variables are to do with "sleeping" the physics engine when things have stopped moving
-var sleepVelocityThreshold = 0.001 // If nothing has a velocity higher than this, go to sleep
-var canSleep = false // We set this to true when things have started moving
-var shouldSleep = false // This gets set to true once everything's slowed down enough
-var activeObjects = []
+var styles = {
+  colours: {
+    sky: '#96F3FF',
+    ground: '#0D0133',
+    player1: '#C0FCD9',
+    player2: '#0D0133',
+    ball1: '#FFFFFF',
+    ball2: '#FC1D21',
+    explosion: '#CD0226',
+    jumpArrow: '#0D0133',
+    shotArrow: '#CD0226'
+  }
+}
 // Setup a canvas for drawing UI elements onto
 var uiCanvas = document.getElementById('ui')
 uiCanvas.width = window.innerWidth
@@ -28,7 +37,7 @@ hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL })
 
 var messages = {
   'aiming-jump': 'Aim a jump by dragging in the opposite direction',
-  'aiming-shot': 'Aim a shot by dragging in the opposite direction'
+  'aiming-shot': 'Shots bounce once before exploding'
 }
 
 /*
@@ -49,12 +58,6 @@ Physics(function (world) {
 
   // add the renderer to the world
   world.add(renderer)
-  // render on each step
-  world.on('step', function () {
-    var sleeping = activeObjects.every(function (object) { return object.asleep })
-    if (sleeping && game.currentTurn.actionsRemaining == 0) nextTurn(world)
-    world.render()
-  })
 
   // resize canvas when the browser is resized
   window.addEventListener('resize', function () {
@@ -65,18 +68,13 @@ Physics(function (world) {
     viewportBounds = Physics.aabb(0, 0, window.innerWidth, window.innerHeight)
   }, true)
 
-  Physics.util.ticker.on(function (time) {
-    drawUI()
-    world.step(time)
-  })
-
   // Make our terrain and add it to the world
   var terrain = genTerrain(canvas.height * 0.9, canvas.height * 0.23, world)
   world.add(terrain)
   // Add each of our characters to the world
   game.characters = getCharacters(world)
   game.characters.forEach(function (character) {
-    activeObjects.push(character)
+    game.activeObjects.push(character)
     world.add(character)
   })
   // Add gravity and collision detection
@@ -95,26 +93,107 @@ Physics(function (world) {
     edgeBehaviour
   ])
 
+  // Render on each step, and check if all objects have to come to rest
+  world.on('step', function () {
+    world.render()
+  })
+
+  // Each 'tick' we draw the UI and advance the physics simulation
+  Physics.util.ticker.on(function (time) {
+    drawUI()
+    var sleeping = game.activeObjects.every(function (object) { return object.asleep })
+    if (sleeping && game.currentTurn.actionsRemaining == 0) nextTurn(world)
+    world.step(time)
+  })
+
   Physics.util.ticker.start()
-  setTimeout(function () {
-    canSleep = true
-  }, 500)
 })
+
+function drawUI () {
+  // We draw anything which isn't governed by the physics engine in this function
+  uiContext.clearRect(0, 0, uiCanvas.width, uiCanvas.height)
+  drawPlayerMarker(game.characters[0])
+  // Draw any ongoing explosions
+  game.explosions.forEach(function (explosion, i) {
+    if (explosion.size >= explosion.maxSize) game.explosions.splice(i, 1)
+    uiContext.beginPath()
+    uiContext.arc(explosion.position.x, explosion.position.y, explosion.size, 0, Math.PI * 2, false)
+    uiContext.lineWidth = 4
+    uiContext.strokeStyle = styles.colours.explosion
+    uiContext.stroke()
+    explosion.size += explosion.size * 0.3
+  })
+
+  if (game.aimArrow) {
+    // Do some maths I copied from the internet
+    var radians = game.aimArrow.angle * Math.PI / 180
+    var arrowToX = game.aimArrow.start.x - game.aimArrow.power * Math.cos(radians)
+    var arrowToY = game.aimArrow.start.y - game.aimArrow.power * Math.sin(radians)
+    // Draw the line
+    uiContext.moveTo(game.aimArrow.start.x, game.aimArrow.start.y)
+    uiContext.lineTo(arrowToX, arrowToY)
+    if (game.currentTurn.state == 'aiming-jump') uiContext.strokeStyle = styles.colours.jumpArrow
+    if (game.currentTurn.state == 'aiming-shot') uiContext.strokeStyle = styles.colours.shotArrow
+    uiContext.lineWidth = 2
+    uiContext.stroke()
+  }
+
+  uiContext.fillStyle = 'white'
+  var messageText = messages[game.currentTurn.state]
+  if (messageText) uiContext.fillText(messageText, canvas.width - 30 - (uiContext.measureText(messageText).width), 40)
+
+  if (game.characters.length == 1) {
+    var winner = game.characters[0]
+    uiContext.fillStyle = 'white'
+    var text = '> '+ winner.colour +' player == "champion"'
+    uiContext.fillText(text, canvas.width / 2 - (uiContext.measureText(text).width / 2), canvas.height / 2 - 20)
+    uiContext.fillText('true', canvas.width / 2 - (uiContext.measureText(text).width / 2), canvas.height / 2 + 20)
+  } else {
+    var i = 0
+    game.characters.forEach(function (char) {
+      uiContext.fillStyle = styles.colours[game.characters[i].gameData.name]
+      uiContext.font = '20px courier'
+      var text = char.gameData.name + ': ' + char.gameData.health
+      uiContext.fillText(text, 30, (i + 1) * 40)
+      i++
+    })
+  }
+}
 
 function makeCharacter (name, position, world) {
   console.log(name, position)
   // Return an object that describes our new character
-  var body = Physics.body('circle', {
+  var body = Physics.body('compound', {
     x: position.x,
     y: position.y,
-    radius: 5
+    styles: {
+      fillStyle: styles.colours[name],
+      lineWidth: 0
+    },
+    children: [
+      Physics.body('circle', {
+        x: 0,
+        y: 0,
+        radius: 5
+      }),
+      Physics.body('convex-polygon', {
+        x: 0,
+        y: -25,
+        vertices: [
+          { x: 0, y: -10 },
+          { x: -10, y: -55 },
+          { x: 10, y: -55 }
+        ]
+      })
+    ]
   })
   body.treatment = 'dynamic'
-  body.cof = 0.8
+  body.cof = 0.9
+  //body.offset = { x: 0, y: 50 }
   body.restitution = 0
   body.mass = 0.00001
-  body.view = new Image(20, 120)
-  body.view.src = 'img/' + name + '.png'
+  // body.view = new Image(20, 120)
+  // body.view.src = 'img/' + name + '.png'
   body.gameData = {
     name: name,
     health: 100,
@@ -206,8 +285,6 @@ function nextTurn (world) {
 
 function jump (angle, power, world, callback) {
   world.wakeUpAll()
-  canSleep = false
-  setTimeout(function () { canSleep = true }, 500)
   var player = game.characters[0]
   game.currentTurn.actionsRemaining--
   game.currentTurn.state = 'jumping'
@@ -216,16 +293,13 @@ function jump (angle, power, world, callback) {
   var stepY = (power * Math.sin(radians)) / 130000000
   game.characters.forEach(function (char) { char.treatment = 'static' })
   player.treatment = 'dynamic'
-  world.unpause()
   player.applyForce({ x: -stepX, y: -stepY })
   console.log(player, stepX, stepY)
-  activeObjects.push(player)
+  game.activeObjects.push(player)
   callback(world)
 }
 
 function fireProjectile (angle, power, world) {
-  canSleep = false
-  setTimeout(function () { canSleep = true }, 500)
   var player = game.characters[0]
   game.currentTurn.actionsRemaining--
   game.currentTurn.state = 'firing'
@@ -235,11 +309,11 @@ function fireProjectile (angle, power, world) {
   var stepY = (power * Math.sin(radians)) / 8000
   var projectile = Physics.body('circle', {
     x: player.state.pos.x - stepX,
-    y: player.state.pos.y - 60 - stepY,
+    y: player.state.pos.y - 40 - stepY,
     radius: 4,
     styles: {
       strokeStyle: 'white',
-      fillStyle: 'white',
+      fillStyle: styles.colours.ball1,
       lineWidth: 4
     }
   })
@@ -247,11 +321,13 @@ function fireProjectile (angle, power, world) {
   projectile.cof = 0.1
   projectile.mass = 0.1
   projectile.applyForce({ x: -stepX, y: -stepY })
+  projectile.gameData = {
+    bounced: 0
+  }
 
   world.add(projectile)
   game.characters.forEach(function (char) { char.treatment = 'static' })
-  activeObjects.push(projectile)
-  world.unpause()
+  game.activeObjects.push(projectile)
 
   world.on('collisions:detected', function (data) {
     data.collisions.forEach(function (collision) {
@@ -261,6 +337,7 @@ function fireProjectile (angle, power, world) {
       
       if (impactedProjectile) {
         if (collision.bodyA.uid == edgeUid || collision.bodyB.uid == edgeUid) {
+          projectile.gameData.bounced++
           impactProjectile(impactedProjectile, 0, 0, world)
         } else {
           impactProjectile(impactedProjectile, 100, 0.5, world)
@@ -268,6 +345,37 @@ function fireProjectile (angle, power, world) {
       }
     })
   })
+}
+
+function impactProjectile (projectile, explosionSize, damageFactor, world) {
+  setTimeout(function () {
+    projectile.gameData.bounced++
+  }, 25)
+  if (projectile.gameData.bounced == 0) {
+    projectile.styles.fillStyle = styles.colours.ball2
+    return
+  }
+
+  game.explosions.push({
+    position: projectile.state.pos,
+    maxSize: explosionSize,
+    size: 1
+  })
+
+  game.characters.forEach(function (char) {
+    var distance = Math.sqrt(Math.pow((char.state.pos.x - projectile.state.pos.x), 2) + Math.pow((char.state.pos.y - projectile.state.pos.y), 2))
+    var angle = Math.atan2(char.state.pos.y - projectile.state.pos.y, char.state.pos.x - projectile.state.pos.x)
+    if (distance < explosionSize) {
+      char.gameData.takeDamage((explosionSize - distance) * damageFactor)
+    }
+  })
+
+  world.removeBody(projectile)
+  game.activeObjects.forEach(function (object, i) {
+    if (object.uid == projectile.uid) game.activeObjects.splice(i, 1)
+  })
+  game.currentTurn.actionsRemaining--
+  nextTurn(world)
 }
 
 function translateDistanceToPower (distance) {
@@ -288,79 +396,6 @@ function drawPlayerMarker (player) {
   uiContext.closePath()
   uiContext.fillStyle = 'white'
   uiContext.fill()
-}
-
-function drawUI () {
-  uiContext.clearRect(0, 0, uiCanvas.width, uiCanvas.height)
-  drawPlayerMarker(game.characters[0])
-  // Draw any ongoing explosions
-  game.explosions.forEach(function (explosion, i) {
-    if (explosion.size >= explosion.maxSize) game.explosions.splice(i, 1)
-    uiContext.beginPath()
-    uiContext.arc(explosion.position.x, explosion.position.y, explosion.size, 0, Math.PI * 2, false)
-    uiContext.lineWidth = 4
-    uiContext.strokeStyle = '#E9FA8F'
-    uiContext.stroke()
-    explosion.size += explosion.size * 0.3
-  })
-
-  if (game.aimArrow) {
-    // Do some maths I copied from the internet
-    var radians = game.aimArrow.angle * Math.PI / 180
-    var arrowToX = game.aimArrow.start.x - game.aimArrow.power * Math.cos(radians)
-    var arrowToY = game.aimArrow.start.y - game.aimArrow.power * Math.sin(radians)
-    // Draw the line
-    uiContext.moveTo(game.aimArrow.start.x, game.aimArrow.start.y)
-    uiContext.lineTo(arrowToX, arrowToY)
-    uiContext.strokeStyle = 'white'
-    uiContext.lineWidth = 1
-    uiContext.stroke()
-  }
-
-  uiContext.fillStyle = 'white'
-  var messageText = messages[game.currentTurn.state]
-  if (messageText) uiContext.fillText(messageText, canvas.width - 30 - (uiContext.measureText(messageText).width), 40)
-
-  if (game.characters.length == 1) {
-    var winner = game.characters[0]
-    uiContext.fillStyle = 'white'
-    var text = '> '+ winner.colour +' player == "champion"'
-    uiContext.fillText(text, canvas.width / 2 - (uiContext.measureText(text).width / 2), canvas.height / 2 - 20)
-    uiContext.fillText('true', canvas.width / 2 - (uiContext.measureText(text).width / 2), canvas.height / 2 + 20)
-  } else {
-    var i = 1
-    game.characters.forEach(function (char) {
-      if (i == 1) uiContext.fillStyle = 'green'
-      else uiContext.fillStyle = 'white'
-      uiContext.font = '20px courier'
-      var text = char.gameData.name + ': ' + char.gameData.health
-      uiContext.fillText(text, 30, i * 40)
-      i++
-    })
-  }
-}
-
-function impactProjectile (projectile, explosionSize, damageFactor, world) {
-  game.explosions.push({
-    position: projectile.state.pos,
-    maxSize: explosionSize,
-    size: 1
-  })
-
-  game.characters.forEach(function (char) {
-    var distance = Math.sqrt(Math.pow((char.state.pos.x - projectile.state.pos.x), 2) + Math.pow((char.state.pos.y - projectile.state.pos.y), 2))
-    var angle = Math.atan2(char.state.pos.y - projectile.state.pos.y, char.state.pos.x - projectile.state.pos.x)
-    if (distance < explosionSize) {
-      char.gameData.takeDamage((explosionSize - distance) * damageFactor)
-    }
-  })
-
-  world.removeBody(projectile)
-  activeObjects.forEach(function (object, i) {
-    if (object.uid == projectile.uid) activeObjects.splice(i, 1)
-  })
-  game.currentTurn.actionsRemaining--
-  nextTurn(world)
 }
 
 function endGame () {
@@ -396,8 +431,8 @@ function genTerrain (floor, height, world) {
     y: 0,
     treatment: 'static',
     styles: {
-      fillStyle: '#FFFFFF',
-      strokeStyle: '#FFFFFF',
+      fillStyle: styles.colours.ground,
+      strokeStyle: styles.colours.ground,
       lineWidth: 3
     }
   })
