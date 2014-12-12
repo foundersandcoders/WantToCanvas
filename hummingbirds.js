@@ -127,17 +127,20 @@ function drawUI () {
     explosion.size += explosion.size * 0.4
   })
 
-  if (game.aimArrow) {
+  if (game.aimArrow && game.aimArrow.power > 10) {
     // Do some maths I copied from the internet
     var radians = game.aimArrow.angle * Math.PI / 180
-    var arrowToX = game.aimArrow.start.x - game.aimArrow.power * Math.cos(radians)
-    var arrowToY = game.aimArrow.start.y - game.aimArrow.power * Math.sin(radians)
+    var arrowToX = game.aimArrow.start.x - (game.aimArrow.power * Math.cos(radians) * 2)
+    var arrowToY = game.aimArrow.start.y - (game.aimArrow.power * Math.sin(radians) * 2)
     // Draw the line
     uiContext.moveTo(game.aimArrow.start.x, game.aimArrow.start.y)
     uiContext.lineTo(arrowToX, arrowToY)
     if (game.currentTurn.state == 'aiming-jump') uiContext.strokeStyle = styles.colours.jumpArrow
     if (game.currentTurn.state == 'aiming-shot') uiContext.strokeStyle = styles.colours.shotArrow
     uiContext.lineWidth = 2
+    uiContext.stroke()
+    uiContext.beginPath()
+    uiContext.arc(game.aimArrow.start.x, game.aimArrow.start.y, 200, radians - 0.02 + Math.PI, radians + 0.02 + Math.PI)
     uiContext.stroke()
   }
 
@@ -262,9 +265,10 @@ function aim (world, callback) {
   })
   
   hammer.on('panend', function (event) {
+    var power = translateDistanceToPower(event.distance)
+    if (power <= 10) return
     hammer.off('panstart pan panend')
     // The player has stopped dragging, let loose!
-    var power = translateDistanceToPower(event.distance)
     callback(event.angle, power, world)
     game.aimArrow = null
     // Stop listening to input until the next turn
@@ -318,9 +322,12 @@ function fireProjectile (angle, power, world) {
   var radians = angle * Math.PI / 180
   var stepX = (power * Math.cos(radians)) / 8000
   var stepY = (power * Math.sin(radians)) / 8000
+  var startX = Math.cos(radians) * 40
+  var startY = Math.sin(radians) * 40
+  console.log(startX, startY)
   var projectile = Physics.body('circle', {
-    x: player.state.pos.x - stepX,
-    y: player.state.pos.y - 40 - stepY,
+    x: player.state.pos.x - startX,
+    y: player.state.pos.y - startY,
     radius: 8,
     styles: {
       fillStyle: styles.colours.ball1
@@ -329,7 +336,6 @@ function fireProjectile (angle, power, world) {
   projectile.restitution = 0.5
   projectile.cof = 0.1
   projectile.mass = 0.1
-  console.log(stepX, stepY)
   projectile.applyForce({ x: -stepX, y: -stepY })
   projectile.gameData = {
     bounced: 0
@@ -387,7 +393,6 @@ function impactProjectile (projectile, explosionSize, damageFactor, world) {
       char.gameData.takeDamage((explosionSize - distance) * damageFactor)
       var stepX = (explosionSize * Math.cos(radians)) / distance / 4000000
       var stepY = (explosionSize * Math.sin(radians)) / distance / 4000000
-      console.log(stepX, stepY)
       char.treatment = 'dynamic'
       char.restitution = 1
       char.cof = 0
